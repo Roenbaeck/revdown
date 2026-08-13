@@ -132,16 +132,26 @@ textarea {
 .emptyMark {
   display: inline-grid;
   place-items: center;
+  overflow: hidden;
   color: var(--gold);
-  background: var(--teal);
+  background: linear-gradient(
+    155deg,
+    #265c6c 0%,
+    var(--teal) 50%,
+    #102f3b 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 16%),
+    inset 0 -1px 0 rgb(4 23 30 / 22%);
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 800;
 }
 
 .brandGlyph {
   display: block;
-  width: 82%;
-  height: 82%;
+  width: 58%;
+  height: 58%;
+  filter: drop-shadow(0 1px 1px rgb(5 25 32 / 28%));
 }
 
 .brandMark {
@@ -631,7 +641,10 @@ textarea {
   margin-bottom: 1.5rem;
   border-radius: 22px;
   font-size: 2.5rem;
-  box-shadow: 0 15px 40px rgb(23 63 75 / 22%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 16%),
+    inset 0 -1px 0 rgb(4 23 30 / 22%),
+    0 15px 40px rgb(23 63 75 / 22%);
 }
 
 .emptyState h1 {
