@@ -1,6 +1,6 @@
 # Revdown Application Plan
 
-Status: Initial implementation plan
+Status: MVP implemented; pre-release validation in progress
 Last revised: 2026-08-13
 
 ## 1. Product Summary

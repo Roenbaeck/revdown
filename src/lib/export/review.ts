@@ -1,0 +1,103 @@
+import type { AnchorMatch } from "../anchors/match";
+import type { ReviewComment, SidecarV1 } from "../schema/sidecar";
+
+export type ReviewExportOptions = {
+  includeResolved?: boolean;
+};
+
+function fenced(value: string, language = "text"): string {
+  const runs = [...value.matchAll(/`+/gu)].map((match) => match[0].length);
+  const fence = "`".repeat(Math.max(3, ...runs.map((length) => length + 1)));
+  return `${fence}${language}\n${value}\n${fence}`;
+}
+
+function commentSection(
+  comment: ReviewComment,
+  match: AnchorMatch | undefined,
+  index: number,
+): string {
+  const anchorState = match?.state ?? "unmatched";
+  const heading =
+    comment.anchor.headingPath.length > 0
+      ? comment.anchor.headingPath.join(" › ")
+      : "(document root)";
+  const lines = [
+    `## Comment ${index + 1}: ${comment.id}`,
+    "",
+    `- Review state: ${comment.status}`,
+    `- Anchor state: ${anchorState}`,
+    `- Heading context: ${heading}`,
+    `- Original line hint: ${comment.anchor.lineHint.start}–${comment.anchor.lineHint.end}`,
+  ];
+  if (match?.candidate) {
+    lines.push(
+      `- Current UTF-16 source range: ${match.candidate.sourceRange.start}–${match.candidate.sourceRange.end}`,
+    );
+  }
+  if (anchorState === "ambiguous" || anchorState === "unmatched") {
+    lines.push(
+      "- Action: Do not guess this target; report it as unresolved if the evidence is insufficient.",
+    );
+  }
+  lines.push(
+    "",
+    "### Exact rendered target",
+    "",
+    fenced(comment.anchor.textQuote.exact),
+  );
+  if (comment.anchor.textQuote.prefix || comment.anchor.textQuote.suffix) {
+    lines.push(
+      "",
+      "### Nearby rendered context",
+      "",
+      `Prefix: ${fenced(comment.anchor.textQuote.prefix)}`,
+      "",
+      `Suffix: ${fenced(comment.anchor.textQuote.suffix)}`,
+    );
+  }
+  if (comment.anchor.sourceText !== comment.anchor.textQuote.exact) {
+    lines.push(
+      "",
+      "### Raw Markdown source",
+      "",
+      fenced(comment.anchor.sourceText, "markdown"),
+    );
+  }
+  lines.push("", "### Feedback", "", fenced(comment.body, "markdown"));
+  return lines.join("\n");
+}
+
+export function generateReviewMarkdown(
+  sidecar: SidecarV1,
+  matches: ReadonlyMap<string, AnchorMatch>,
+  options: ReviewExportOptions = {},
+): string {
+  const comments = sidecar.comments.filter(
+    (comment) => options.includeResolved === true || comment.status === "open",
+  );
+  const sections = [
+    "# Revdown review",
+    "",
+    `Target file: \`${sidecar.source.filename}\``,
+    "",
+    `Observed SHA-256: \`${sidecar.source.lastObservedSha256}\``,
+    `Observed normalized SHA-256: \`${sidecar.source.lastObservedNormalizedSha256}\``,
+    "",
+    "## Instructions for applying this review",
+    "",
+    "Use all supplied anchor evidence; line numbers are hints, not identities. Apply each comment while preserving the document’s purpose, voice, style, and formatting unless the feedback requests otherwise. Keep edits focused, adjusting nearby text only when needed for grammar, correctness, consistency, or natural flow. Avoid unrelated rewrites. Never guess an ambiguous or unmatched target.",
+    "",
+    "When filesystem tools are available, edit the named source file and summarize the result. Otherwise provide the revised document in the form appropriate to the active conversation. Report every comment as applied, skipped, ambiguous, or unmatched.",
+    "",
+    `Exported comments: ${comments.length}`,
+  ];
+  if (comments.length === 0)
+    sections.push(
+      "",
+      "There are no comments matching the selected export filter.",
+    );
+  comments.forEach((comment, index) => {
+    sections.push("", commentSection(comment, matches.get(comment.id), index));
+  });
+  return `${sections.join("\n")}\n`;
+}

@@ -1,6 +1,6 @@
 # Revdown
 
-Revdown is a planned desktop application for reviewing Markdown without editing
+Revdown is a desktop application for reviewing Markdown without editing
 the source document. Select text in a rendered Markdown view, attach feedback,
 and keep the comments in a structured sidecar file that can be reopened later or
 exported for an LLM or coding agent.
@@ -34,7 +34,7 @@ structured anchor data needed to match comments after the document changes.
 Human- and LLM-readable Markdown is generated as an export rather than used as
 the application database.
 
-## Planned Capabilities
+## MVP Capabilities
 
 - Native Windows and macOS application
 - CommonMark and GitHub Flavored Markdown rendering
@@ -45,18 +45,20 @@ the application database.
 - Markdown file and clipboard export for LLM and agent workflows
 - Local-first operation with no account or API key required
 
-## Planned Stack
+## Stack
 
-Revdown will use Tauri 2 with a React and TypeScript frontend. Markdown will be
-processed through unified, remark, and rehype. Rust will provide a narrow native
+Revdown uses Tauri 2 with a React and TypeScript frontend. Markdown is processed
+through unified, remark, and rehype. Rust provides a narrow native
 boundary for safe file access, atomic sidecar writes, and file watching.
 
 See [PLAN.md](PLAN.md) for the product decisions, sidecar model, architecture,
 security constraints, milestones, and MVP acceptance criteria.
 
-## Status
+## Development
 
-Revdown is currently in planning and has not yet reached a usable release.
+The MVP implementation is available as a pre-release. See
+[DEVELOPMENT.md](DEVELOPMENT.md) for macOS and Windows prerequisites, local
+commands, browser-harness testing, and packaging instructions.
 
 ## License
 

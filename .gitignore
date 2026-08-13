@@ -1,0 +1,57 @@
+# Dependencies and package-manager state
+node_modules/
+.pnpm-store/
+
+# Frontend build and tool caches
+dist/
+coverage/
+.cache/
+.vite/
+.vitest/
+.eslintcache
+.nyc_output/
+*.tsbuildinfo
+
+# Browser-test output
+playwright-report/
+test-results/
+
+# Rust and Tauri-generated output
+target/
+src-tauri/gen/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/Square*.png
+src-tauri/icons/StoreLogo.png
+src-tauri/icons/64x64.png
+
+# Local configuration and signing credentials
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.keychain-db
+AuthKey_*.p8
+certificate-base64.txt
+
+# Editor and operating-system metadata
+.idea/
+.vscode/
+.fleet/
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Runtime logs
+*.log
+*.pid
+
+# Revdown sidecars and generated review exports
+*.rd.json
+*.rd.md

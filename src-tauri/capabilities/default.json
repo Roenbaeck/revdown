@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The Revdown main window can call only explicitly registered core commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
