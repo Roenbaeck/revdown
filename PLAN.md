@@ -1,472 +1,669 @@
-# PLAN
-This plan was created in a discussion with an LLM, based on my ideas, and needs to be revised into a proper plan.
+# Revdown Application Plan
 
----
-Is there a good markdown renderer repo that I could possibly start with for a new project? I would like a markdown reader (not editor) that does not alter an existing markdown file, but in which you can select sections of text and provide comments. It would be great if comments were visibly accessible, readable, and editable once there. Comments are saved in a file alongside the original markdown document, in some text format, maybe also markdown. I'd then like to be able to take the contents of that text formatted save of comments, feed that to an LLM along with the original markdown, and the LLM should understand exactly what orignal text was commented and be able to read the comment itself. 
+Status: Initial implementation plan
+Last revised: 2026-08-13
 
-I think this would be very useful in my workflow with LLMs, where they often produce large markdown files, and I want to provide feedback on them. Right now I have to do so in an editor and intermix comments with text, which is both risky, alters the original text, and consumes more tokens than necessary when I return the commented file to the LLM. 
+## 1. Product Summary
 
-What do you think of the idea? What existing tech could give me a good start? Ideally I'd like to be able to run this on macOS and Windows, with very good performance, and with rendering of both code and math. Basically the same capabilities an LLM uses when rendering a response.
----
-### Thoughts on the Idea
+Revdown is a cross-platform desktop application for reviewing Markdown without
+modifying the source document. A reviewer opens a local Markdown file, selects
+text in its rendered form, and attaches comments. Revdown stores those comments
+in a structured sidecar file next to the source.
 
-**Your idea is fantastic.** It essentially creates a **GitHub Pull Request review interface specifically tailored for local Markdown files and LLM workflows.**
+The sidecar is designed for two related uses:
 
-Here is why this workflow makes complete sense:
-1. **Non-Destructive & Token-Efficient:** By keeping comments in a sidecar file rather than embedding HTML comments (`<!-- comment -->`) or inline brackets into the main file, you preserve the exact output from the LLM without risk of syntax corruption. Sending a clean sidecar format to the LLM consumes significantly fewer tokens than sending a giant file filled with inline annotations.
-2. **Contextual Precision:** Providing the target string/quote alongside the line numbers or offset anchors gives the LLM unambiguous context on what needs changing.
-3. **Reproducibility:** You can maintain a history of LLM iterations (e.g., `v1.md`, `v1.comments.md`, leading to `v2.md`).
+1. Reopen the document in Revdown and continue the review.
+2. Export the review as concise, self-describing Markdown that a person, an LLM,
+   or a coding agent can use to revise the source document.
 
----
+Revdown itself never applies revisions to the source Markdown in the initial
+application. Its job is to capture precise feedback, preserve it safely, and
+make the feedback portable.
 
-### Key Tech Stack & Starter Architectures
+## 2. Problem Statement
 
-To get **high performance**, **cross-platform support (macOS & Windows)**, and **LLM-grade rendering (Math + Syntax Highlighting)**, here are the best starting paths.
+Reviewing a long Markdown document produced by an LLM is awkward in a text
+editor. Adding feedback directly to the document:
 
----
+- changes the source and can accidentally damage its syntax;
+- mixes source content with review instructions;
+- makes exact selections difficult to communicate;
+- creates unnecessary tokens when the document is sent back to an LLM; and
+- provides no reliable way to detect whether comments still match after the
+  source changes.
 
-#### Approach 1: Tauri + Web Tech (Recommended for a Standalone App)
-If you want a lightweight, blazing-fast native desktop application without the memory overhead of Electron, **[Tauri](https://tauri.app/)** (Rust backend + Web frontend) is the gold standard.
+Existing Markdown editors focus on changing the document. Existing code review
+tools generally require a repository, commit, or pull request. Revdown fills the
+smaller local workflow between those categories.
 
-*   **Framework:** Tauri (Rust handles native file I/O for saving sidecars; Webview renders the UI).
-*   **Markdown Engine:** **[Unified / Remark / Rehype](https://github.com/remarkjs/remark)**
-    *   *Why:* Unlike simple regex-based renderers, `remark` parses Markdown into a concrete Syntax Tree (AST). This makes calculating exact character offsets, block line numbers, and DOM nodes trivial when a user highlights text.
-*   **Math Rendering:** **[rehype-katex](https://github.com/remarkjs/remark-math/tree/main/packages/rehype-katex)** (fast, standard KaTeX rendering, identical to ChatGPT/Claude).
-*   **Code Highlighting:** **[Shiki](https://shiki.style/)** or **[rehype-highlight](https://github.com/rehypejs/rehype-highlight)**. Shiki uses VS Code's exact TextMate grammars for pixel-perfect syntax highlighting.
-*   **Text Selection & Annotation Engine:**
-    *   **[RecogitoJS](https://github.com/recogito/recogito-js)** or **[Apache Annotator](https://annotator.apache.org/)**: These libraries implement the W3C Web Annotation standard. They handle highlighted text selections, create robust selectors (exact quote + prefix + suffix), and can trigger comment overlays.
+## 3. Goals
 
----
+The initial application will:
 
-#### Approach 2: A VS Code Extension (The Ultimate "Shortcut")
-Before writing a full app from scratch, consider that **VS Code already has a built-in Commenting API** (`vscode.comments`) and best-in-class Markdown/Math/Code rendering.
+- run as a native desktop application on Windows and macOS;
+- open local UTF-8 Markdown files in a read-only rendered view;
+- render CommonMark, GitHub Flavored Markdown, code, and math well;
+- let a reviewer comment on a selection within a rendered source block;
+- create, edit, resolve, reopen, and delete comments;
+- keep the source document byte-for-byte unchanged;
+- save comments atomically in a versioned JSON sidecar;
+- detect document drift and re-anchor comments conservatively;
+- distinguish exact, relocated, ambiguous, and unmatched anchors;
+- export an efficient Markdown review for LLM and agent workflows; and
+- remain useful without an account, network connection, or LLM API key.
 
-*   **How it works:** You write a lightweight extension. When opening a `.md` file, the extension reads the adjacent `.comments.json` or `.comments.md` file and renders native comment threads right in the gutter (just like GitHub PR comments).
-*   **Pros:** 
-    *   Zero UI rendering logic to write (VS Code handles line rendering, math via extensions, syntax highlighting, and text selection natively).
-    *   Cross-platform out of the box (macOS/Windows/Linux/Web).
-    *   You only write ~200 lines of TypeScript glue code to handle comment creation and sidecar read/write.
+## 4. Non-Goals for the Initial Application
 
----
+The first release will not:
 
-### Starter Repositories / Templates
+- edit or automatically revise the source Markdown;
+- call hosted or local LLM APIs;
+- provide real-time collaboration or cloud synchronization;
+- replace Git or preserve a full history of source-document snapshots;
+- support threaded discussions or multiple reviewer identities;
+- guarantee arbitrary selections across unrelated rendered blocks;
+- execute embedded HTML, scripts, or active content;
+- support every Markdown dialect or MDX; or
+- infer a numeric amount of drift from a cryptographic hash.
 
-If you choose to build a standalone desktop app, here are great open-source starting templates:
+These exclusions keep the first version focused on trustworthy annotation and
+export. Features can be reconsidered after the core workflow is proven.
 
-1. **[Tauri + React + Tailwind Starter](https://github.com/tauri-apps/tauri)**
-   * Set up a Tauri app with a React frontend. You can install `react-markdown`, `remark-math`, `rehype-katex`, and `shiki`.
-2. **[MarkText](https://github.com/marktext/marktext)** *(Reference Repo)*
-   * An open-source real-time Markdown editor/viewer built on Electron and `markdown-it`. While it's an editor, its rendering pipeline (KaTeX, PrismJS) and block-structure handling are great code references.
-3. **[Milkdown](https://milkdown.dev/)**
-   * A plugin-driven, headless WYSIWYG/Markdown engine based on ProseMirror and Remark. Even in read-only mode, its plugin architecture makes inline annotations and selection popups simple to build.
+## 5. Product Principles
 
----
+### 5.1 Source integrity
 
-### Recommended Sidecar Format for LLMs
+Revdown must never write to the opened Markdown file. All writes go to a new or
+existing sidecar or to an explicitly chosen export path.
 
-To make the sidecar file easily parsable by LLMs, use **Markdown with YAML/JSON metadata** or structured Markdown with blockquotes. 
+### 5.2 Transparent confidence
 
-LLMs excel at parsing both YAML and Markdown context blocks.
+The application must not silently guess where a stale comment belongs. Match
+quality is visible, and ambiguous or unmatched comments remain available for
+manual action.
 
-#### Option A: Clean Markdown (Token Efficient)
-```markdown
-# Feedback for draft.md
+### 5.3 Local first
 
-### Comment 1
-- **Line Range:** 12–14
-- **Target Text:** 
-> "The engine uses a deterministic state machine to process events."
-- **Feedback:** Clarify what happens if an unhandled event enters the queue.
+Reviewing and exporting work offline. Remote content is not required for the
+core experience.
 
----
+### 5.4 Structured storage, readable interchange
 
-### Comment 2
-- **Line Range:** 45–45
-- **Target Text:** `$E = mc^2$`
-- **Feedback:** Explain the variables in the math section below this equation.
-```
+JSON is the canonical application format. Markdown is a generated interchange
+format for people and LLMs. Keeping these roles separate prevents display
+formatting from becoming a fragile persistence contract.
 
-#### Option B: JSON / YAML Sidecar (`draft.md.comments.json`)
+### 5.5 Model-agnostic instructions
+
+Exports describe the task and format without assuming the document's domain or
+the capabilities of a specific LLM. The instructions ask a reviser to preserve
+the source's purpose, voice, and style unless a comment directs otherwise.
+
+## 6. Primary Workflow
+
+1. The user opens `document.md`.
+2. Revdown reads the file without obtaining write access and renders it.
+3. Revdown looks for `document.md.rd.json` in the same directory.
+4. Existing comments are validated, matched against the current document, and
+   shown in the document and review panel.
+5. The user selects text within one supported rendered block and creates a
+   comment.
+6. Revdown captures source positions, quotes, surrounding context, structural
+   hints, and hashes for the anchor.
+7. Revdown writes the sidecar atomically. The source remains untouched.
+8. The user exports open comments to Markdown or copies the generated review to
+   the clipboard.
+9. A person, LLM, or coding agent applies the feedback and reports any comments
+   it could not match confidently.
+10. When the changed source is reopened, Revdown re-evaluates all anchors and
+    displays their current status.
+
+## 7. User Experience
+
+### 7.1 Main window
+
+The desktop window has three stable regions:
+
+- A compact toolbar for opening a document, toggling the review panel,
+  filtering comment status, and exporting the review.
+- A scrollable rendered-document surface where comment anchors are highlighted.
+- A resizable review panel listing comments in document order.
+
+The document is the primary surface. Comments should be easy to discover but
+must not obscure the text. Selecting a comment scrolls to and emphasizes its
+anchor; selecting an anchor opens its comment.
+
+### 7.2 Creating a comment
+
+After a valid text selection, a small comment action appears near the selection.
+Activating it opens a focused composer. Saving creates the sidecar if necessary.
+Canceling creates no persistent data.
+
+For the MVP, a selection must remain within one source-backed block, such as a
+paragraph, heading, list item, blockquote paragraph, table cell, or code block.
+Unsupported selections receive a clear explanation rather than being truncated
+or accepted imprecisely.
+
+### 7.3 Comment states
+
+Comments have a review state:
+
+- `open`: included in exports by default;
+- `resolved`: retained but omitted from exports by default.
+
+Separately, each comment has a computed anchor state:
+
+- `exact`: the original document fingerprint and source range still match;
+- `relocated`: a unique, high-confidence match was found after document drift;
+- `ambiguous`: more than one plausible match exists;
+- `unmatched`: no sufficiently reliable match exists.
+
+Anchor state is computed when a document is loaded and is not silently written
+back to the sidecar. The user may explicitly confirm a relocated or ambiguous
+match to replace the stored anchor with one based on the current document.
+
+### 7.4 Accessibility
+
+The application targets WCAG 2.2 AA for its own interface. All commands need a
+keyboard path, focus must remain visible, status cannot be communicated by color
+alone, and comment-to-anchor navigation must work with assistive technology.
+Standard browser text selection remains available to keyboard users.
+
+## 8. File Conventions
+
+### 8.1 Canonical sidecar
+
+The default sidecar name is the complete source filename followed by
+`.rd.json`:
+
+| Source | Sidecar |
+| --- | --- |
+| `document.md` | `document.md.rd.json` |
+| `notes.markdown` | `notes.markdown.rd.json` |
+
+Preserving the full source filename avoids collisions between files with the
+same stem but different extensions. The shorter `.rd` marker keeps the name
+recognizable without spelling out the product name.
+
+The sidecar resides next to its source by default. It contains the source
+filename, never an absolute path, so a document and sidecar can be moved
+together or committed without leaking machine-specific paths.
+
+### 8.2 Generated review export
+
+The default exported Markdown name is `<source-filename>.rd.md`, for example
+`document.md.rd.md`. An export is derived data and may be regenerated at any
+time. It is not read as canonical annotation storage.
+
+Clipboard export produces the same content without creating a file.
+
+## 9. Canonical Sidecar Model
+
+### 9.1 Format rules
+
+- JSON encoded as UTF-8.
+- A required integer `schemaVersion`, beginning at `1`.
+- UUID v4 identifiers generated with the platform cryptographic API.
+- UTC timestamps in ISO 8601 format.
+- SHA-256 values encoded as lowercase hexadecimal.
+- Source offsets represented as zero-based UTF-16 code-unit offsets into the
+  decoded JavaScript source string, with an exclusive end offset.
+- Display line and column hints represented as one-based values.
+- Unknown future properties preserved when safely rewriting a supported schema.
+- Unsupported schema versions opened read-only with a clear error; they are
+  never overwritten.
+
+The offset convention is explicit because JavaScript string offsets differ from
+UTF-8 byte offsets for some characters. Exact file hashes are calculated over
+the original bytes and are independent of source offsets.
+
+### 9.2 Source fingerprints
+
+Two document fingerprints are useful:
+
+- `sha256`: hash of the exact file bytes. Equality means the file is
+  byte-for-byte identical.
+- `normalizedSha256`: hash after decoding valid UTF-8, removing an optional UTF-8
+  byte-order mark, converting CRLF and CR line endings to LF, and encoding as
+  UTF-8 again. No other whitespace or Unicode normalization is performed.
+
+The normalized hash prevents line-ending conversion alone from making every
+comment appear stale. Neither hash measures how much a document changed.
+
+Each anchor stores the document hashes observed when that anchor was created or
+explicitly confirmed. This matters because new comments may be added after an
+older source has already changed.
+
+### 9.3 Initial schema shape
+
+The following example is illustrative. The implementation must define and test
+the authoritative runtime schema before persistence work begins.
+
 ```json
-[
-  {
-    "id": "c1",
-    "target_quote": "The engine uses a deterministic state machine to process events.",
-    "context_prefix": "In this architecture, ",
-    "context_suffix": " All transitions are logged.",
-    "line_start": 12,
-    "line_end": 14,
-    "comment": "Clarify what happens if an unhandled event enters the queue."
-  }
-]
+{
+  "schemaVersion": 1,
+  "source": {
+    "filename": "document.md",
+    "lastObservedSha256": "0123456789abcdef...",
+    "lastObservedNormalizedSha256": "0123456789abcdef..."
+  },
+  "createdAt": "2026-08-13T10:00:00.000Z",
+  "updatedAt": "2026-08-13T10:05:00.000Z",
+  "comments": [
+    {
+      "id": "5a5ea9e9-7983-48e7-9377-fac74a69f061",
+      "status": "open",
+      "body": "Explain why this constraint is necessary.",
+      "createdAt": "2026-08-13T10:05:00.000Z",
+      "updatedAt": "2026-08-13T10:05:00.000Z",
+      "anchor": {
+        "documentSha256": "0123456789abcdef...",
+        "documentNormalizedSha256": "0123456789abcdef...",
+        "sourceRange": {
+          "start": 418,
+          "end": 463
+        },
+        "sourceText": "the queue accepts at most one pending request",
+        "textQuote": {
+          "exact": "the queue accepts at most one pending request",
+          "prefix": "During shutdown, ",
+          "suffix": ". Further requests"
+        },
+        "block": {
+          "start": 392,
+          "end": 489,
+          "sourceSha256": "abcdef0123456789..."
+        },
+        "headingPath": ["Architecture", "Shutdown"],
+        "lineHint": {
+          "start": 18,
+          "end": 18
+        }
+      }
+    }
+  ]
+}
 ```
 
-*Note on Robustness:* Storing the `target_quote` alongside `context_prefix` and `context_suffix` (W3C Text Quote Selector standard) ensures that even if the original file changes slightly, your app and the LLM can still anchor the comment to the exact spot.
+Comment bodies use Markdown text but are rendered with the same safety rules as
+the source. Threaded replies, attachments, authors, and full source snapshots
+are intentionally absent from schema version 1.
 
----
+## 10. Selection and Source Mapping
 
-### Prompting Strategy for the LLM
+Source mapping is the highest technical risk and must be proven before the full
+interface is built.
 
-When feeding both files back to an LLM, you can use a prompt template like this:
+The unified parser provides positional metadata on Markdown syntax-tree nodes.
+Revdown will preserve that metadata as Markdown is transformed to HTML and will
+mark source-backed rendered blocks with their source ranges. Within each block,
+it will maintain a mapping between selectable DOM text and the corresponding raw
+Markdown source.
 
-> **Prompt:**
-> "I am providing an original document (`DOCUMENT.md`) and a set of inline review comments (`COMMENTS.md`). 
-> Please update `DOCUMENT.md` by addressing each comment in `COMMENTS.md`. Do not modify sections of text that do not have comments associated with them."
+The mapping must account for inline Markdown syntax whose rendered text differs
+from its source, including emphasis, links, escapes, entities, and inline code.
+The stored anchor therefore contains both:
 
----
-Let's assume I go with the markdown sidecar. Like you say, the original document can evolve independently of the sidecar. Would it be possible to add some form of "hash" to the sidecar, from which it would be possible to determine how much the document the sidecar was based on has deviated from a current one? This would give the LLM an idea of how likely it is that comments will be matchable to precise locations or text. Perhaps the markdown format could contain more ways to find what was originally commented? This is an edge case of course, and most of the times I expect the hash to be identical.
----
+- `sourceText`: the exact raw Markdown slice; and
+- `textQuote.exact`: the text the reviewer saw and selected.
 
-Handling "document drift"—where the source document changes while the sidecar comments stay the same—is a classic challenge in annotation and code-review systems. 
+Initial behavior by content type:
 
-Adding hashing and multi-layered anchors directly into the Markdown sidecar is a great solution. It allows both your desktop application and the receiving LLM to instantly gauge confidence, locate displaced comments, and handle edge cases gracefully.
+- Paragraphs, headings, list items, and blockquotes: support text selections
+  across inline formatting within one block.
+- Links: select the visible label; retain the raw Markdown source slice.
+- Fenced code: support selections within one code block and preserve raw code.
+- Tables: support a selection within one cell.
+- Math: allow anchoring the complete inline or display math source node; selecting
+  an arbitrary visual subexpression is deferred because KaTeX output does not
+  map reliably back to source characters.
+- Images and non-text nodes: allow a block-level comment in a later milestone,
+  but not an arbitrary text selection in the initial vertical slice.
+- Raw HTML: do not execute it and do not promise source-mapped selection in the
+  MVP.
 
----
+A dedicated source-mapping spike must demonstrate correct round trips for
+Unicode, CRLF, repeated text, emphasis, links, inline code, fenced code, lists,
+tables, and math. Failure of that spike should change the rendering approach
+before other application code depends on it.
 
-### 1. Document Hashing Strategies for Drift Detection
+## 11. Re-Anchoring After Document Drift
 
-You can add a **YAML Frontmatter** block at the top of the Markdown sidecar file. This separates global document metadata from individual comments.
+Opening a document never mutates stored anchors automatically. Revdown computes
+matches using increasingly permissive evidence:
 
-#### Level A: Global Document Hash (Fastest Check)
-* **What it is:** A standard SHA-256 hash of the entire original `.md` document when the comments were generated.
-* **How it works:** When your app opens `document.md` and `document.comments.md`, it re-calculates the SHA-256 of `document.md`.
-  * **Hash matches:** 100% confidence. No drift. Line numbers and offsets are exact.
-  * **Hash differs:** Drift detected. Fall back to local search strategies.
+1. If the exact or normalized document hash matches, verify `sourceRange` and
+   `sourceText` at the stored offsets.
+2. Search for an exact `sourceText` match inside the original containing block
+   or current heading section.
+3. Search for an exact rendered `textQuote` in source-backed blocks, scoring its
+   prefix, suffix, block fingerprint, and heading path.
+4. Search for a unique exact source or rendered quote elsewhere in the document.
+5. Apply conservative fuzzy comparison only within structurally plausible
+   blocks.
+6. If no single candidate clears the confidence threshold, classify the anchor
+   as `ambiguous` or `unmatched`.
 
-#### Level B: Block-Level Hashes (Granular Check)
-* **What it is:** A hash of *just the specific paragraph or block element* being commented on.
-* **Why it’s powerful:** If a user adds 5 new paragraphs at the top of the document, the global document hash will change, but the block hash for a paragraph at the bottom will remain identical. The system knows with 100% certainty that the target text itself was not edited, only moved.
+Line numbers and heading paths are hints, not identities. Paragraph indexes such
+as `p[2]` are not stored because inserting a paragraph makes them stale.
 
-#### Level C: Similarity Score / Diff Metric
-If you want to inform the LLM how much the document drifted overall, your desktop app can calculate a quick **Levenshtein distance** or **Diff ratio** (e.g., using `diff-match-patch`) between the original document state and the current state, writing a `drift_score` to the metadata:
-* `drift_score: 0%` (Identical)
-* `drift_score: 5%` (Minor edits, high match confidence)
-* `drift_score: 40%` (Major refactoring, fuzzy matching required)
+Confidence thresholds will be selected against a checked-in fixture corpus,
+not intuition. Tests must include repeated phrases and deliberately misleading
+near-matches. The algorithm should prefer an unresolved comment over a wrong
+high-confidence match.
 
----
+## 12. LLM and Agent Export Contract
 
-### 2. Multi-Layered Anchoring (How to reliably locate text)
+The generated Markdown review contains:
 
-To make sure a comment can *always* be mapped back to its target—even if line numbers shift or minor typos are fixed—you should use a **3-part anchoring system** in the sidecar:
+- the target filename and observed document hashes;
+- short format and execution instructions;
+- each exported comment's ID and anchor state;
+- heading context and line hints;
+- exact target text plus prefix and suffix;
+- raw source text when it differs materially from rendered text; and
+- the reviewer's feedback.
 
-1. **Structural Anchor (AST Path):** Markdown headings create a logical hierarchy. E.g., `# Architecture > ## Event Loop > Paragraph 2`.
-   * *Resilience:* Line numbers change easily, but structural AST positions rarely break unless the whole section is renamed or deleted.
-2. **Contextual Anchor (W3C Quote + Prefix + Suffix):** Include a few words before and after the selection.
-   * *Resilience:* If the exact target string appears multiple times in the document (e.g., `const x = 1;`), the prefix/suffix surrounding it makes it globally unique.
-3. **Exact Quote:** The target text.
+Open comments are exported by default. The user may include resolved comments.
+Ambiguous and unmatched comments remain in the export and are clearly marked.
 
----
+The generated instructions will communicate these rules:
 
-### 3. Example Markdown Sidecar File Schema
+1. Locate each target using all supplied anchor evidence rather than line hints
+   alone.
+2. Apply the feedback while preserving the document's purpose, voice, style,
+   and formatting unless the comment requests a change.
+3. Focus edits on the targeted region, but adjust nearby text when necessary for
+   grammar, correctness, consistency, or natural flow.
+4. Avoid unrelated rewrites.
+5. Do not guess when a target remains ambiguous or unmatched.
+6. When filesystem tools are available, edit the named source and summarize the
+   result. Otherwise, provide the revised document in the form appropriate to
+   the active conversation.
+7. Report which comments were applied, skipped, ambiguous, or unmatched.
 
-Here is what a complete, token-efficient, drift-resistant Markdown sidecar file looks like:
+These are instructions contained in user-provided data, not a guarantee of LLM
+behavior. System or user instructions in the active LLM environment may take
+precedence. Revdown will make the review self-describing without claiming that
+every model or agent will execute it automatically.
 
-```markdown
----
-target_file: architecture_doc.md
-target_sha256: 8f4e2a1b9c3d...
-created_at: 2026-08-13T10:00:00Z
-drift_score: 0%  # Updated dynamically by your app if files diverge
----
+## 13. Technology Decisions
 
-# Feedback for architecture_doc.md
+### 13.1 Desktop and frontend
 
-## Comment 1
-- **Target ID:** comment-001
-- **AST Path:** `# System Overview > ## Data Flow > p[2]`
-- **Block SHA256:** a1b2c3d4...
-- **Line Hint:** 42-44
-- **Context:**
-  - **Prefix:** `...when receiving incoming payload, `
-  - **Target:** `the engine uses a deterministic state machine to process events.`
-  - **Suffix:** ` All state transitions are written to...`
-- **Feedback:** Clarify what happens if an unhandled event enters the queue during a state transition.
+| Area | Decision | Reason |
+| --- | --- | --- |
+| Desktop shell | Tauri 2 | Small distributable, native filesystem boundary, Windows and macOS support |
+| Native layer | Stable Rust | Safe file operations, hashing, dialogs, and file watching |
+| Frontend | React with strict TypeScript | Mature accessibility, component, and testing ecosystem |
+| Build tool | Vite | Fast local development and first-class Tauri integration |
+| Package manager | pnpm | Reproducible lockfile and efficient dependency management |
+| Styling | CSS Modules plus global design tokens | Scoped styles without a large runtime or utility dependency |
+| Application state | React reducer/context initially | The MVP state model does not justify a separate state library |
 
----
+Use a currently supported Node.js LTS release and the stable Rust toolchain.
+Exact dependency versions belong in lockfiles rather than this plan.
 
-## Comment 2
-- **Target ID:** comment-002
-- **AST Path:** `# API Reference > ## Endpoints`
-- **Block SHA256:** e5f6g7h8...
-- **Line Hint:** 89-89
-- **Context:**
-  - **Target:** `POST /v1/process`
-- **Feedback:** Change this endpoint to `PUT` since it is idempotent.
+### 13.2 Content pipeline
+
+| Capability | Decision |
+| --- | --- |
+| Markdown AST | unified with remark-parse |
+| GFM | remark-gfm |
+| Math syntax | remark-math |
+| HTML conversion | remark-rehype and controlled rehype plugins |
+| Math rendering | KaTeX through rehype-katex |
+| Code highlighting | Shiki with languages and themes loaded on demand |
+| Schema validation | Zod at the TypeScript boundary |
+| Hashing | SHA-256 through Rust or the Web Crypto API with shared test vectors |
+
+Shiki initialization must be asynchronous and cached. A small initial language
+bundle should be used rather than loading every grammar at startup.
+
+### 13.3 Testing and quality
+
+| Layer | Tooling |
+| --- | --- |
+| Type checking | TypeScript compiler in strict mode |
+| Frontend unit/component tests | Vitest and Testing Library |
+| Browser workflow tests | Playwright against the frontend harness |
+| Rust tests | Cargo test |
+| Formatting and linting | Prettier, ESLint, rustfmt, and Clippy |
+| CI | GitHub Actions on Windows and macOS |
+
+Playwright does not by itself validate every native Tauri integration. Browser
+tests will cover rendering, selection, comments, and export through mocked native
+adapters. Rust tests cover native services, and packaged desktop smoke tests are
+run on both target platforms before release.
+
+## 14. Application Architecture
+
+The frontend owns parsing, rendering, selection mapping, comments, anchor
+matching, validation, and export generation. Rust provides a deliberately narrow
+native boundary:
+
+- open-file dialog;
+- read source bytes;
+- read an optional sidecar;
+- atomically write a validated sidecar or export;
+- return file metadata and change notifications;
+- open approved external links in the system browser; and
+- calculate hashes if measurements show a benefit over Web Crypto.
+
+All native calls use typed request and response objects. Frontend features depend
+on an interface rather than direct Tauri imports so the same workflows can run
+in browser tests.
+
+Suggested initial project layout:
+
+```text
+src/
+  app/
+  components/
+  features/
+    comments/
+    document/
+    export/
+  lib/
+    anchors/
+    markdown/
+    schema/
+  services/
+    native.ts
+    native.browser.ts
+src-tauri/
+  src/
+    commands/
+    files.rs
+    lib.rs
+tests/
+  fixtures/
+  e2e/
 ```
 
----
+Code organization may evolve, but anchor logic, persistence schema, Markdown
+rendering, and native I/O should remain separable and independently testable.
 
-### 4. How the LLM Uses This Metadata
+## 15. Persistence and Conflict Handling
 
-When sending this sidecar to an LLM alongside the current document, the LLM will automatically adapt its search behavior based on the metadata:
+Sidecar saves use an atomic replace strategy:
 
-* **If `target_sha256` matches:** The LLM knows it can trust line hints and exact character matches blindly.
-* **If `target_sha256` differs, but `Block SHA256` or `Context` is provided:** You can include a simple instruction in your system prompt:
+1. Serialize validated JSON with stable formatting and a trailing newline.
+2. Write a uniquely named temporary file in the destination directory.
+3. Flush and close the temporary file.
+4. Replace the destination using the safest atomic operation available on the
+   platform.
+5. Clean up abandoned temporary files when possible.
 
-> **System Prompt Rule for Drift:**
-> *"If `target_sha256` indicates document drift, do not rely on line numbers. Instead, find the commented text by matching the `AST Path` heading hierarchy and the `Context (Prefix + Target + Suffix)` block. If the target text was slightly modified in the source file, locate the closest semantic match."*
+Before saving, Revdown compares the sidecar's current file metadata or content
+hash with the version originally loaded. If another process changed it, Revdown
+does not overwrite it. The user is offered reload or explicit conflict
+resolution.
 
-Because modern LLMs (Claude, GPT-4, Llama 3) have strong fuzzy matching and context understanding capabilities, giving them the `Prefix + Target + Suffix` context triplet guarantees near-100% accuracy in locating dislocated comments.
+Source file changes trigger a debounced reload prompt. Unsaved comment text is
+kept in memory while the source is reparsed. Revdown never writes a watched
+source file.
 
----
-Rather than having to discipline users to provide a good prompt alongside the document and the sidecar when feeding it back to the LLM, would it be possible to add the prompt in the frontmatter of the sidecar? Would an LLM respect that?
----
+## 16. Security and Privacy
 
-**Yes, absolutely.** Including the prompt/instructions directly in the sidecar’s YAML frontmatter is a brilliant UX pattern. 
+Markdown is untrusted input even when it is local. The initial application will:
 
-Modern instruction-tuned LLMs (GPT-4o, Claude 3.5 Sonnet, Llama 3) treat frontmatter as high-priority structural context. They are very adept at recognizing metadata keys like `instructions:` or `system_prompt:` and executing them natively.
+- use a strict Tauri capability configuration and content security policy;
+- disable script execution and unsafe URL schemes;
+- not pass raw HTML through to executable DOM;
+- sanitize any HTML introduced by rendering plugins;
+- prevent Markdown links from invoking Tauri commands;
+- open web links externally rather than inside the privileged application view;
+- resolve local image paths against the document directory and prevent path
+  traversal outside approved scope;
+- avoid loading remote images by default to prevent tracking and network leaks;
+- validate sidecars before displaying or writing them; and
+- never include absolute local paths in exports unless the user explicitly asks.
 
-Whether a user is using your app’s automated API integration or literally copy-pasting raw text into the ChatGPT/Claude web interface, putting the prompt in the frontmatter works reliably for two key reasons:
+Comment Markdown follows the same rendering policy. No telemetry is included in
+the initial application.
 
----
+## 17. Performance Targets
 
-### How It Works in Both Usage Scenarios
+Performance will be measured on named reference machines once the first vertical
+slice exists. Initial release targets are:
 
-#### Scenario A: Manual Copy-Paste into Chat Interfaces (Web UI)
-If a user simply drags and drops `document.md` and `document.comments.md` into ChatGPT or Claude without typing a word:
-1. The LLM reads the top of `document.comments.md`.
-2. It sees the structured YAML frontmatter declaring the task, role, and output format.
-3. Because instruction-tuned models pay heavy attention to structured top-level metadata, the LLM will adopt the persona and execute the task automatically.
+- A 1 MiB Markdown document becomes readable within 2 seconds on a supported
+  mid-range machine after application startup.
+- Selection and comment interactions do not perform synchronous full-document
+  reparsing.
+- Saving a normal sidecar feels immediate and never blocks document scrolling.
+- A sidecar with 1,000 comments can be loaded and matched without freezing the
+  interface.
+- Shiki languages and themes are loaded lazily and cached.
+
+Large-document fixtures and timing instrumentation will be checked in. If the
+targets are missed, profiling precedes architectural changes.
 
-#### Scenario B: Automated via Your Desktop App (API Calls)
-If your desktop app handles the LLM call via API (OpenAI, Anthropic, Ollama, etc.):
-1. Your app parses the YAML frontmatter of the sidecar file.
-2. It extracts the `system_instructions` field and passes it cleanly into the API's official `system` parameter.
-3. The remaining body of the sidecar + the original document are passed as the `user` message.
+## 18. Delivery Milestones
 
----
-
-### Recommended Frontmatter Schema with Embedded Prompt
-
-Here is how you can structure the sidecar frontmatter so that it acts as a self-contained, auto-executing prompt:
-
-```markdown
----
-target_file: architecture_doc.md
-target_sha256: 8f4e2a1b9c3d...
-
-# Embedded LLM Instructions
-task: revise_document
-role: Expert Technical Editor
-instructions: >
-  You are an expert technical writer and editor. Your task is to update the target document 
-  based on the inline feedback comments provided in this sidecar file.
-  
-  Rules:
-  1. Only modify sections of the target document that correspond to the provided comments.
-  2. Keep all un-commented text, structure, and formatting completely untouched.
-  3. Match target text using the provided `AST Path` and `Context (Prefix + Target + Suffix)` 
-     if line numbers have shifted.
-  4. Return ONLY the fully revised Markdown document as your output. Do not include introductory 
-     or concluding conversational text.
-
----
-
-# Feedback for architecture_doc.md
-
-## Comment 1
-- **Target ID:** comment-001
-- **AST Path:** `# System Overview > ## Data Flow > p[2]`
-- **Context:**
-  - **Prefix:** `...when receiving incoming payload, `
-  - **Target:** `the engine uses a deterministic state machine to process events.`
-  - **Suffix:** ` All state transitions are written to...`
-- **Feedback:** Clarify what happens if an unhandled event enters the queue during a state transition.
-```
-
----
-
-### Why This Design is Extremely Effective
-
-1. **Zero Friction for End-Users:** The user never has to remember "What was that good prompt I used last time?" The sidecar file is completely self-describing.
-2. **Version Control for Prompts:** As you refine your app's prompt engineering over time to get better results, you can update the template used when creating new sidecar files. Old sidecars retain their original prompts, ensuring reproducible results.
-3. **Customizable per Project:** A user could edit the `instructions:` block in a specific sidecar if they want a special tone (e.g., *"Rewrite these sections to be more concise"* or *"Expand heavily on the code examples in these feedback points"*).
-
----
-I think it's dangerous to assume a role like "Expert Technical Editor", since we have no idea what the original document contains. A better instruction would be that it should adapt a role that fits the purpose and stay true to the original style of writing, unless a comment specifically changes that directive.
----
-
-You are 100% right. Hardcoding a role like "Expert Technical Editor" imposes an assumption about the document's domain. If the document is a fantasy novel chapter, a legal contract, a personal blog post, or a marketing pitch, telling the LLM to behave like a "Technical Editor" will cause it to flatten the author's unique voice or rewrite creative prose into rigid, corporate prose.
-
-A far better approach is to instruct the LLM to **infer and adapt to the target document's domain and style**, making style-preservation the default rule, while allowing individual comments to act as explicit overrides.
-
----
-
-### Revised Domain-Agnostic Frontmatter Schema
-
-Here is how the prompt instruction in the sidecar frontmatter should look to handle *any* type of document:
-
-```markdown
----
-target_file: draft.md
-target_sha256: 8f4e2a1b9c3d...
-
-task: apply_inline_feedback
-instructions: >
-  You are an adaptive document reviewer. Your goal is to apply the feedback comments 
-  in this sidecar file to the original target document.
-
-  Rules for Revision:
-  1. Style & Voice Preservation: Automatically adapt your tone, vocabulary, and writing style 
-     to match the purpose and domain of the original document. Preserve the author's unique 
-     voice throughout your revisions.
-  2. Comment Directive Hierarchy: Treat specific inline comments as local overrides. If a comment 
-     explicitly requests a change in tone, formatting, or style (e.g., "make this more formal" 
-     or "simplify this explanation"), follow the comment's directive for that specific section.
-  3. Scope Constraint: Revise ONLY the sections targeted by comments. Leave all un-commented 
-     text, structure, and formatting completely untouched.
-  4. Matching Resilience: Locate target text using the provided AST Path and Context 
-     (Prefix + Target + Suffix) if line numbers or exact wording have drifted slightly.
-  5. Output Format: Output ONLY the complete, updated Markdown document. Do not include any 
-     conversational preamble, explanation, or postscript.
----
-
-# Feedback for draft.md
-
-## Comment 1
-- **Target ID:** comment-001
-- **AST Path:** `# Chapter 1 > p[3]`
-- **Context:**
-  - **Prefix:** `...the shadows lengthened across the valley, `
-  - **Target:** `he felt a sudden chill that rattled his very bones.`
-  - **Suffix:** ` No one had warned him about the night air...`
-- **Feedback:** Make this description more visceral and atmospheric, but keep the suspenseful tone.
-```
-
----
-
-### Why This Design Works Much Better
-
-1. **Leverages In-Context Learning:** LLMs are exceptionally good at "style-matching" (inferring the register, sentence structure, and vocabulary density of text provided in the prompt). Telling it to infer the style from the original file taps directly into this core strength.
-2. **Clear Hierarchy of Intent:** By explicitly telling the LLM: `Original Document Style` $\rightarrow$ `Overridden by Inline Comment`, you eliminate ambiguity when a comment intentionally asks for a stylistic shift (e.g., changing a complex paragraph into a simple bulleted list).
-3. **Domain Agnostic:** The exact same software and sidecar template can now be used by a fiction writer, a software engineer writing docs, a lawyer reviewing a contract, or a student writing an essay.
-
----
-Do you think those instructions explain the sidecar format sufficiently and efficiently? Ideally, the LLM will know how to parse the format from reading the instructions along.
----
-
-They are **about 85% of the way there**. 
-
-Because modern LLMs are intelligent, they would *probably* figure out that `Target:` means "text to find" and `Feedback:` means "what to do." However, relying on the LLM's implicit intuition leaves room for edge-case errors—such as the LLM confusing the `Prefix` with text it should edit, or missing where the comment payload actually lives.
-
-To make the format **100% self-explaining and foolproof**, the instructions should briefly and explicitly define the **Sidecar Schema** (mapping the keys to their meaning) alongside the **Execution Rules**.
-
----
-
-### What Was Missing / Ambiguous
-
-1. **Explicit Key-to-Action Binding:** The LLM wasn't explicitly told that `Feedback:` is the instruction and `Context.Target` is the subject.
-2. **File Boundary Clarity:** If a user pastes both the target document and the sidecar into a single chat window, the LLM needs to know how to distinguish the sidecar's comments from the original document's text.
-
----
-
-### The Optimized, Ultra-Efficient Instructions Block
-
-Here is the refined instruction set. It adds explicit parsing rules in just **5 extra lines**, making the sidecar completely self-documenting without wasting tokens:
-
-```markdown
----
-target_file: draft.md
-target_sha256: 8f4e2a1b9c3d...
-
-task: apply_inline_feedback
-instructions: >
-  You are an adaptive document editor. Apply the review comments in this sidecar file 
-  to the attached target document.
-
-  SIDECAR PARSING RULES:
-  - Each edit task is defined under a `## Comment [N]` section.
-  - LOCATE: Find the text in the target document matching `Context.Target`. Use `Prefix`, 
-    `Suffix`, and `AST Path` to disambiguate identical or displaced text.
-  - APPLY: Execute the instruction given in `Feedback:` on the matched text.
-
-  EXECUTION RULES:
-  1. Style: Match the target document's tone, domain, and writing style, unless `Feedback:` 
-     explicitly requests a style change.
-  2. Scope: Revise ONLY the targeted text. Leave all un-commented content completely untouched.
-  3. Output: Return ONLY the complete, updated target document in Markdown. No preamble or explanations.
----
-```
-
----
-
-### Why This Refinement Guarantees Success
-
-1. **Zero Guesswork for Key Names:** By explicitly linking `LOCATE` $\rightarrow$ `Context.Target` and `APPLY` $\rightarrow$ `Feedback:`, the LLM has a clear algorithm to follow: *Find X, apply Y*.
-2. **Explicit Disambiguation Strategy:** Telling it explicitly that `Prefix` and `Suffix` exist to *disambiguate* prevents the LLM from accidentally modifying the prefix or suffix text.
-3. **Extremely Compact:** The entire instruction set is roughly **140 words**. It adds virtually no overhead to your token budget while giving the LLM complete parsing deterministic clarity.
-
----
-I see two issues here. We are assuming perfectly disciplined users. First, I think "Revise ONLY" is too strong, since a user may have marked some text for commenting where also the surrounding text may need to change in order for the change to make sense or flow naturally. Secondly, the "Return ONLY" assumes a workflow with cut and pase into an LLM web interface. This could be run in Agent mode within Codex, Claude Code, or Antigravity, where it would make more sense that the original file resides in a repo and is altered, after which the Agent can summarize what it did. Perhaps it couldn't match some of the comments to the original text, at which point it would be very useful for the end user to get that information reported back to them. 
----
-
-You've hit on two crucial real-world editing dynamics that single-turn web prompts completely break.
-
-### Issue 1: The "Frankenstein Text" Problem (Over-constrained Scope)
-If an LLM is strictly forbidden from touching surrounding text, replacing a phrase like *"the fast engine"* with *"the high-throughput, event-driven processing loop"* will create grammatically awkward, jarring transitions with the surrounding sentence. 
-
-An editor *must* have permission to blend changes naturally into immediate context.
-
-### Issue 2: Agentic Workflows vs. Single-Turn Copy-Pasting
-Assuming a simple "paste text into web chat" model ignores modern software workflows. When running in **Agent Mode** (like Claude Code, Google's Antigravity, Cursor, or CLI agents):
-1. **The Agent mutates the file on disk directly.** It doesn't print a giant Markdown file to stdout if it can just write to `draft.md`.
-2. **Error & Drift Reporting is vital.** If `Comment 4` points to text that was deleted 3 commits ago, the Agent shouldn't silently hallucinate or guess—it needs to report: *"Applied 3 comments successfully. Could not match Comment 4."*
-
----
-
-### The Updated, Agent-Aware Frontmatter Schema
-
-Here is how we update the frontmatter instructions to accommodate **natural text blending**, **Agentic file-editing mode**, and **Drift/Failure Reporting**:
-
-```markdown
----
-target_file: draft.md
-target_sha256: 8f4e2a1b9c3d...
-
-task: apply_inline_feedback
-instructions: >
-  You are an adaptive document editor and agent. Apply the review comments in this 
-  sidecar file to the specified target document.
-
-  SIDECAR PARSING RULES:
-  - Each task is defined under a `## Comment [N]` section.
-  - LOCATE: Match `Context.Target` in the target document. Use `Prefix`, `Suffix`, 
-    and `AST Path` to resolve displaced or ambiguous text.
-  - APPLY: Execute the instructions in `Feedback:` on the matched region.
-
-  REVISION & SCOPE RULES:
-  - Contextual Blending: Primary edits must focus on the targeted region. However, you MAY 
-    adjust immediate surrounding words, punctuation, or sentence structure if required 
-    for correct grammar, natural voice, and smooth transitions.
-  - Unrelated Content: Do not refactor or rewrite paragraphs that have no associated comments.
-
-  EXECUTION & REPORTING:
-  - Agent Mode (File-system access available): Apply edits directly to `target_file`. 
-    Summarize actions taken in your final response.
-  - Completion Mode (No file-system access): Output the complete, revised target document.
-  - Unmatched / Ambiguous Comments Report: If any comment cannot be matched with high 
-    confidence (due to severe document drift or deleted text), DO NOT guess blindly. 
-    Explicitly list unmatched comments under an `Execution & Unmatched Comments Report` 
-    so the user can manually address them.
----
-```
-
----
-
-### Why This Complete Design Works so Well
-
-#### 1. Graceful Handling of Document Drift
-If 1 out of 5 comments can't be matched because the original text was deleted, the LLM will output a clean report instead of breaking the build or hallucinating:
-
-> **Execution & Unmatched Comments Report:**
-> - ✅ **Comment 1 & 2:** Applied successfully in Section 1.
-> - ✅ **Comment 3:** Applied in Section 3 (adjusted surrounding sentence for flow).
-> - ⚠️ **UNMATCHED - Comment 4:** Target text `"the fast engine"` could not be found near `AST Path: # Performance`. Skipping edit.
-
-#### 2. Native Compatibility with Coding Agents (Claude Code, Antigravity, etc.)
-Agents will read `Agent Mode: Apply edits directly to target_file` and automatically trigger their file-editing tools (`str_replace_editor`, `write_file`), rather than dumping 2,000 lines of Markdown text into the terminal console.
-
-#### 3. Natural Writing Quality
-The `Contextual Blending` rule gives the model room to fix prepositions, conjunctions, and punctuation around the edit zone so the resulting prose reads like it was written by a single human author in one pass.
-
----
+### Milestone 0: Project foundation
+
+- Scaffold Tauri 2, React, TypeScript, Vite, and pnpm.
+- Add formatting, linting, strict type checking, unit tests, and CI.
+- Define the native adapter interface and minimal Tauri capabilities.
+- Add Windows and macOS development instructions.
+
+Exit criterion: a packaged empty application builds in CI on both target
+platforms, and all quality commands pass locally.
+
+### Milestone 1: Source-mapping risk spike
+
+- Build the unified Markdown pipeline with GFM, KaTeX, and Shiki.
+- Preserve source positions through the render tree.
+- Implement DOM-selection-to-source mapping for the supported MVP blocks.
+- Create fixture documents covering formatting and encoding edge cases.
+- Document unsupported selections in code and product behavior.
+
+Exit criterion: automated fixtures prove that visible selections round-trip to
+the intended raw source ranges on Chromium and WebKit browser engines. The team
+accepts the mapping approach before feature work continues.
+
+### Milestone 2: Read-only document viewer
+
+- Open a Markdown file through the native dialog.
+- Render it in the main window with a polished reading layout.
+- Add safe links, local images, loading, empty, and error states.
+- Watch for external source changes without writing to the source.
+
+Exit criterion: representative Markdown files render correctly on Windows and
+macOS, and tests verify that viewer actions never modify the source bytes.
+
+### Milestone 3: Comments and persistence
+
+- Finalize the version 1 Zod schema and compatibility fixtures.
+- Add comment creation, editing, resolving, reopening, and deletion.
+- Add document highlights and the review panel.
+- Implement sidecar discovery, validation, atomic save, and conflict detection.
+
+Exit criterion: closing and reopening restores comments and exact anchors; forced
+write failures or external sidecar changes do not corrupt or overwrite data.
+
+### Milestone 4: Drift and re-anchoring
+
+- Implement exact and normalized fingerprints.
+- Implement deterministic candidate generation and confidence scoring.
+- Display exact, relocated, ambiguous, and unmatched states.
+- Add explicit anchor confirmation and replacement.
+- Build a drift fixture corpus with repeated and misleading text.
+
+Exit criterion: changed documents retain reliable anchors, uncertain cases are
+never presented as exact, and the test corpus has no known false-positive
+high-confidence matches.
+
+### Milestone 5: Review export
+
+- Generate the model-agnostic Markdown review format.
+- Add file and clipboard export.
+- Filter open and resolved comments.
+- Include and report uncertain anchors without inventing matches.
+- Test exports against representative documents and comments containing Markdown
+  syntax, code fences, and Unicode.
+
+Exit criterion: a person or coding agent can understand each exported target and
+instruction without access to Revdown's JSON schema documentation.
+
+### Milestone 6: Release hardening
+
+- Complete keyboard and screen-reader review.
+- Verify security policy, link handling, and path containment.
+- Measure and tune performance targets.
+- Add application metadata, icons, installers, and update documentation.
+- Run packaged smoke tests on supported Windows and macOS versions.
+
+Exit criterion: release checklist passes on both platforms with no known source
+integrity, sidecar data-loss, or high-severity security defects.
+
+## 19. MVP Acceptance Criteria
+
+The MVP is complete when all of the following are true:
+
+1. A user can open and read a local Markdown document containing GFM, code, and
+   math on Windows and macOS.
+2. The user can comment on a supported rendered selection and manage the comment
+   without changing the source file.
+3. Revdown writes and reloads a valid `document.md.rd.json` sidecar atomically.
+4. Exact source bytes before and after a complete review session are identical.
+5. Comments remain anchored after common insertions and moves when there is a
+   unique reliable match.
+6. Ambiguous and missing targets are visibly reported and never silently guessed.
+7. The user can export a self-describing Markdown review to a file or clipboard.
+8. External sidecar modifications produce a conflict instead of data loss.
+9. Raw Markdown content cannot execute scripts or privileged native commands.
+10. Automated checks and packaged smoke tests pass on the supported platforms.
+
+## 20. Known Risks and Mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| Rendered text cannot always map cleanly to Markdown source | Complete the source-mapping spike first; constrain unsupported selections explicitly |
+| System webviews differ between Windows and macOS | Test Chromium and WebKit browser harnesses; perform packaged smoke tests on both systems |
+| Fuzzy matching attaches feedback to the wrong text | Prefer unresolved states, require uniqueness, and tune thresholds against adversarial fixtures |
+| Sidecar writes lose concurrent changes | Use atomic writes and optimistic conflict detection |
+| Large documents block the UI | Avoid reparsing on interaction, lazy-load highlighting, measure with large fixtures |
+| Local Markdown loads unsafe content | Use strict CSP, sanitize output, block active HTML and remote resources by default |
+| Export instructions are treated as guaranteed commands | Describe them as portable guidance and always report uncertain targets |
+| Schema changes break older reviews | Version the schema, preserve fixtures, and implement explicit migrations |
+
+## 21. Post-MVP Possibilities
+
+Potential later work, guided by actual usage:
+
+- optional LLM provider integrations;
+- a CLI for validating sidecars and generating exports;
+- block-level comments on images, diagrams, and rendered math;
+- carefully designed cross-block selections;
+- comment threads, authors, labels, and review summaries;
+- portable review bundles containing an optional source snapshot;
+- Git-aware source revision metadata;
+- additional Markdown dialects;
+- Linux packages; and
+- agent integrations that can apply feedback and return per-comment results.
+
+None of these should broaden the initial architecture until the annotation,
+re-anchoring, and export workflow has been validated with real documents.
