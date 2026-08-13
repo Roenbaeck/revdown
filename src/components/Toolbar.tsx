@@ -1,4 +1,5 @@
 import type { CommentFilter, SaveStatus } from "../app/state";
+import { BrandGlyph } from "./BrandGlyph";
 
 type ToolbarProps = {
   filename: string | undefined;
@@ -22,7 +23,7 @@ export function Toolbar(props: ToolbarProps) {
     <header className="toolbar">
       <div className="brand" aria-label="Revdown">
         <span className="brandMark" aria-hidden="true">
-          R
+          <BrandGlyph />
         </span>
         <span>Revdown</span>
       </div>

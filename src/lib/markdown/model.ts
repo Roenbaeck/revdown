@@ -291,13 +291,37 @@ function findElement(
   return found;
 }
 
+function findTightListItem(
+  root: HastRoot,
+  start: number,
+  end: number,
+): Element | undefined {
+  let found: Element | undefined;
+  let foundWidth = Number.POSITIVE_INFINITY;
+  visit(root, "element", (element) => {
+    if (
+      element.tagName !== "li" ||
+      element.properties["data-rd-block-id"] !== undefined
+    )
+      return;
+    const range = offsets(element as Positioned);
+    if (!range || range.start > start || range.end < end) return;
+    const width = range.end - range.start;
+    if (width < foundWidth) {
+      found = element;
+      foundWidth = width;
+    }
+  });
+  return found;
+}
+
 function restoreSourceMetadata(
   root: HastRoot,
   blocks: PendingBlock[],
   inlines: InlineRecord[],
 ): void {
   for (const block of blocks) {
-    const element = findElement(root, (candidate) => {
+    let element = findElement(root, (candidate) => {
       if (!matchesPosition(candidate, block.start, block.end)) return false;
       if (block.kind === "code") return candidate.tagName === "code";
       if (block.kind === "math") {
@@ -313,6 +337,11 @@ function restoreSourceMetadata(
         return candidate.tagName === "td" || candidate.tagName === "th";
       return true;
     });
+    // Tight Markdown lists flatten their paragraph wrapper into the `li`.
+    // Use the smallest enclosing list item while retaining paragraph offsets.
+    if (!element && block.kind === "paragraph") {
+      element = findTightListItem(root, block.start, block.end);
+    }
     if (element) {
       element.properties["data-rd-block-id"] = block.id;
       element.properties["data-rd-block-kind"] = block.kind;

@@ -77,6 +77,25 @@ test("creates, manages, and navigates a source-backed comment", async ({
   ).toBeVisible();
 });
 
+test("comments on text inside a tight linked list item", async ({ page }) => {
+  await page.goto("/");
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Open Markdown" }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles("tests/fixtures/source-mapping.md");
+  await expect(
+    page.getByRole("heading", { name: "Mapping fixture" }),
+  ).toBeVisible();
+
+  await selectRenderedText(page, "the earlier draft, not a current task list");
+  await expect(
+    page.getByRole("dialog", { name: "New review comment" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/must target text within one paragraph/u),
+  ).toBeHidden();
+});
+
 test("exports a self-describing review to the clipboard", async ({
   page,
   context,

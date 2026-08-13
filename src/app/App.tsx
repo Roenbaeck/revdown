@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { BrandGlyph } from "../components/BrandGlyph";
 import { DocumentSurface } from "../components/DocumentSurface";
 import { ReviewPanel } from "../components/ReviewPanel";
 import { SelectionComposer } from "../components/SelectionComposer";
@@ -465,7 +466,7 @@ export function App() {
           {state.phase === "empty" && (
             <div className="emptyState">
               <span className="emptyMark" aria-hidden="true">
-                R
+                <BrandGlyph />
               </span>
               <p className="eyebrow">Local-first Markdown review</p>
               <h1>Feedback without fingerprints on the source.</h1>

@@ -123,6 +123,59 @@ describe("DOM selection source mapping", () => {
     surface.remove();
   });
 
+  it("maps text after a link inside a tight list item", async () => {
+    const source =
+      "- [Improvements.md](./Improvements.md) is a developmental record of the earlier draft, not a current task list.";
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    const surface = document.createElement("article");
+    surface.innerHTML = model.html;
+    document.body.append(surface);
+
+    const mapped = mapDomSelection(
+      selectText(surface, "the earlier draft, not a current task list"),
+      surface,
+      model,
+    );
+    expect(mapped.kind).toBe("mapped");
+    if (mapped.kind === "mapped") {
+      expect(mapped.selection.block.kind).toBe("paragraph");
+      expect(mapped.selection.sourceText).toBe(
+        "the earlier draft, not a current task list",
+      );
+    }
+    surface.remove();
+  });
+
+  it("keeps adjacent tight list items as separate comment targets", async () => {
+    const source = "- First compact item.\n- Second compact item.";
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    const surface = document.createElement("article");
+    surface.innerHTML = model.html;
+    document.body.append(surface);
+    const items = surface.querySelectorAll("li");
+    const start = document
+      .createTreeWalker(items[0]!, NodeFilter.SHOW_TEXT)
+      .nextNode();
+    const end = document
+      .createTreeWalker(items[1]!, NodeFilter.SHOW_TEXT)
+      .nextNode();
+    const range = document.createRange();
+    range.setStart(start!, 0);
+    range.setEnd(end!, Math.min(6, end!.textContent?.length ?? 0));
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    expect(mapDomSelection(selection, surface, model).kind).toBe("unsupported");
+    surface.remove();
+  });
+
   it("rejects cross-block selections", async () => {
     const source = "First paragraph.\n\nSecond paragraph.";
     const model = await parseMarkdownDocument(

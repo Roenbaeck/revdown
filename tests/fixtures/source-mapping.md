@@ -10,6 +10,7 @@ Inline code is `const answer = 42` inside a paragraph.
 
 - A list item with repeated text.
 - A second list item with repeated text.
+- [Improvements.md](./Improvements.md) is a developmental record of the earlier draft, not a current task list.
 
 | Name | Meaning |
 | --- | --- |

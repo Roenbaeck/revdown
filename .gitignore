@@ -55,3 +55,4 @@ Desktop.ini
 # Revdown sidecars and generated review exports
 *.rd.json
 *.rd.md
+Subnosis.md

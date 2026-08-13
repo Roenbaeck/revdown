@@ -138,6 +138,12 @@ textarea {
   font-weight: 800;
 }
 
+.brandGlyph {
+  display: block;
+  width: 82%;
+  height: 82%;
+}
+
 .brandMark {
   width: 31px;
   height: 31px;
