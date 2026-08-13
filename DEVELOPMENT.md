@@ -42,6 +42,10 @@ pnpm tauri build
 Tauri packages the current platform only. Release candidates therefore need a
 macOS build on macOS and a Windows build on Windows; CI runs both.
 
+Publishing a GitHub release builds and uploads both desktop installers. See
+[RELEASING.md](RELEASING.md) for optional macOS notarization and Windows
+Authenticode signing secrets.
+
 ## Validation map
 
 - `pnpm lint`: strict TypeScript ESLint rules

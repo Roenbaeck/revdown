@@ -82,6 +82,10 @@ export function DocumentOutline(props: DocumentOutlineProps) {
       `[data-rd-block-id="${CSS.escape(id)}"]`,
     );
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (target) {
+      target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+    }
     setActiveId(id);
   };
 

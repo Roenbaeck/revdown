@@ -175,6 +175,22 @@ keyboard path, focus must remain visible, status cannot be communicated by color
 alone, and comment-to-anchor navigation must work with assistive technology.
 Standard browser text selection remains available to keyboard users.
 
+### 7.5 Reading appearance
+
+Reader preferences include system-aware light, sepia, and dark themes plus
+serif or sans-serif type, four text sizes, three line spacings, and three line
+widths. Preferences are stored locally and never modify the source document or
+its sidecar. The native window background follows the resolved theme. On macOS,
+the content uses an overlay title bar so both windowed and full-screen layouts
+draw through the native title-bar region without revealing an unrelated border.
+The macOS bundle opts out of display safe-area compatibility mode after keeping
+toolbar controls away from the camera housing with safe-area insets. Since
+native macOS full screen reserves the camera/menu-bar strip, Revdown's View >
+Full screen action uses the platform's simple full-screen mode so the window
+background reaches the display edge. Native macOS full-screen requests are
+converted to that same mode once AppKit finishes its Space transition.
+Control-Command-F uses the same path, and Escape exits it.
+
 ## 8. File Conventions
 
 ### 8.1 Canonical sidecar
@@ -423,8 +439,9 @@ Exact dependency versions belong in lockfiles rather than this plan.
 | Schema validation | Zod at the TypeScript boundary |
 | Hashing | SHA-256 through Rust or the Web Crypto API with shared test vectors |
 
-Shiki initialization must be asynchronous and cached. A small initial language
-bundle should be used rather than loading every grammar at startup.
+Shiki initialization must be asynchronous and cached. Themes are initialized
+once, while each supported language grammar is imported only when a document
+uses it; unsupported language labels fall back to unhighlighted code.
 
 ### 13.3 Testing and quality
 
@@ -620,6 +637,8 @@ instruction without access to Revdown's JSON schema documentation.
 - Verify security policy, link handling, and path containment.
 - Measure and tune performance targets.
 - Add application metadata, icons, installers, and update documentation.
+- Build macOS and Windows artifacts when a GitHub release is published, with
+  optional Developer ID/notarization and Authenticode signing credentials.
 - Run packaged smoke tests on supported Windows and macOS versions.
 
 Exit criterion: release checklist passes on both platforms with no known source

@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "The Revdown main window can call only explicitly registered core commands.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-background-color",
+    "core:window:allow-set-theme"
+  ]
 }

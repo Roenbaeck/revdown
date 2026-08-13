@@ -24,6 +24,11 @@ export type ExportResult = {
   saved: boolean;
 };
 
+export type WindowAppearance = {
+  theme: "light" | "dark";
+  backgroundColor: string;
+};
+
 export type NativeService = {
   openDocument(): Promise<OpenedDocument | null>;
   loadSidecar(sessionId: string): Promise<LoadedSidecar>;
@@ -44,6 +49,11 @@ export type NativeService = {
     relativePath: string,
   ): Promise<string | null>;
   openExternal(url: string): Promise<void>;
+  setWindowAppearance(appearance: WindowAppearance): Promise<void>;
+  setWindowFullscreen(fullscreen: boolean): Promise<void>;
+  observeWindowFullscreen(
+    listener: (fullscreen: boolean) => void,
+  ): Promise<() => void>;
 };
 
 export class NativeServiceError extends Error {

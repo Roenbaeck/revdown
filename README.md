@@ -39,6 +39,8 @@ the application database.
 - Native Windows and macOS application
 - CommonMark and GitHub Flavored Markdown rendering
 - KaTeX math rendering and Shiki code highlighting
+- Collapsible outline and comment-aware minimap for long documents
+- System-aware light, sepia, and dark themes with reading controls
 - Comments anchored to rendered selections
 - Conservative re-anchoring after document drift
 - Clear reporting of ambiguous and unmatched feedback

@@ -1,7 +1,7 @@
 import { fingerprintText } from "../fingerprints";
 import { parseMarkdownDocument } from "../markdown/model";
 import type { Anchor } from "../schema/sidecar";
-import { matchAnchor } from "./match";
+import { matchAllAnchors, matchAnchor } from "./match";
 
 async function anchorFor(
   source: string,
@@ -89,5 +89,44 @@ describe("conservative anchor matching", () => {
       await fingerprintText(changed),
     );
     expect(matchAnchor(anchor, model).state).toBe("unmatched");
+  });
+
+  it("matches 1,000 unchanged comments without freezing", async () => {
+    const source = Array.from(
+      { length: 1_000 },
+      (_, index) => `Paragraph ${index}: unique target ${index}.`,
+    ).join("\n\n");
+    const fingerprint = await fingerprintText(source);
+    const model = await parseMarkdownDocument(source, fingerprint);
+    const paragraphBlocks = model.blocksInSourceOrder.filter(
+      (block) => block.kind === "paragraph",
+    );
+    const anchors = paragraphBlocks.map((block, index) => {
+      const sourceText = `unique target ${index}`;
+      const start = source.indexOf(sourceText, block.start);
+      return {
+        id: `comment-${index}`,
+        anchor: {
+          documentSha256: fingerprint.sha256,
+          documentNormalizedSha256: fingerprint.normalizedSha256,
+          sourceRange: { start, end: start + sourceText.length },
+          sourceText,
+          textQuote: { exact: sourceText, prefix: "", suffix: "" },
+          block: {
+            start: block.start,
+            end: block.end,
+            sourceSha256: block.sourceSha256,
+          },
+          headingPath: block.headingPath,
+          lineHint: { start: block.lineStart, end: block.lineEnd },
+        } satisfies Anchor,
+      };
+    });
+    const started = performance.now();
+    const matches = matchAllAnchors(anchors, model);
+    expect(
+      [...matches.values()].every((match) => match.state === "exact"),
+    ).toBe(true);
+    expect(performance.now() - started).toBeLessThan(2_000);
   });
 });

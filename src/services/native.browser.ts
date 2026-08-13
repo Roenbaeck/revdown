@@ -5,6 +5,7 @@ import type {
   OpenedDocument,
   SaveResult,
   SourceRevision,
+  WindowAppearance,
 } from "./native";
 import { NativeServiceError } from "./native";
 import { encodeUtf8, sha256Hex } from "../lib/fingerprints";
@@ -149,6 +150,30 @@ export class BrowserNativeService implements NativeService {
     }
     window.open(url, "_blank", "noopener,noreferrer");
     return Promise.resolve();
+  }
+
+  setWindowAppearance(appearance: WindowAppearance): Promise<void> {
+    void appearance;
+    return Promise.resolve();
+  }
+
+  async setWindowFullscreen(fullscreen: boolean): Promise<void> {
+    if (fullscreen) {
+      await document.documentElement.requestFullscreen();
+    } else if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    }
+  }
+
+  observeWindowFullscreen(
+    listener: (fullscreen: boolean) => void,
+  ): Promise<() => void> {
+    const update = () => listener(document.fullscreenElement !== null);
+    update();
+    document.addEventListener("fullscreenchange", update);
+    return Promise.resolve(() =>
+      document.removeEventListener("fullscreenchange", update),
+    );
   }
 
   private session(id: string): BrowserSession {

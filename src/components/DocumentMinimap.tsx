@@ -10,12 +10,14 @@ import {
 import type { AnchorMatch } from "../lib/anchors/match";
 import type { MarkdownDocumentModel } from "../lib/markdown/model";
 import type { ReviewComment } from "../lib/schema/sidecar";
+import type { ResolvedTheme } from "../lib/settings/reader";
 
 type DocumentMinimapProps = {
   model: MarkdownDocumentModel;
   comments: readonly ReviewComment[];
   matches: ReadonlyMap<string, AnchorMatch>;
   selectedCommentId: string | null;
+  theme: ResolvedTheme;
   scrollContainerRef: RefObject<HTMLElement>;
   onClose: () => void;
 };
@@ -88,7 +90,9 @@ export function DocumentMinimap(props: DocumentMinimapProps) {
       if (!context) return;
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       context.clearRect(0, 0, width, height);
-      context.fillStyle = "#f6f3eb";
+      const dark = props.theme === "dark";
+      const sepia = props.theme === "sepia";
+      context.fillStyle = dark ? "#202a28" : sepia ? "#fbf3df" : "#f6f3eb";
       context.fillRect(0, 0, width, height);
       const sourceLength = Math.max(props.model.source.length, 1);
       for (const block of props.model.blocks.values()) {
@@ -111,10 +115,16 @@ export function DocumentMinimap(props: DocumentMinimapProps) {
         );
         context.fillStyle =
           block.kind === "heading"
-            ? "rgba(23, 59, 76, 0.72)"
+            ? dark
+              ? "rgba(210, 226, 226, 0.72)"
+              : "rgba(23, 59, 76, 0.72)"
             : block.kind === "code"
-              ? "rgba(50, 114, 147, 0.44)"
-              : "rgba(84, 91, 83, 0.28)";
+              ? dark
+                ? "rgba(104, 169, 195, 0.48)"
+                : "rgba(50, 114, 147, 0.44)"
+              : dark
+                ? "rgba(198, 207, 201, 0.34)"
+                : "rgba(84, 91, 83, 0.28)";
         context.fillRect(inset, y, contentWidth, blockHeight);
       }
       for (const marker of markers) {
@@ -138,7 +148,7 @@ export function DocumentMinimap(props: DocumentMinimapProps) {
     resizeObserver.observe(track);
     draw();
     return () => resizeObserver.disconnect();
-  }, [markers, props.model, props.selectedCommentId]);
+  }, [markers, props.model, props.selectedCommentId, props.theme]);
 
   const navigateToPointer = (event: PointerEvent<HTMLButtonElement>) => {
     const container = props.scrollContainerRef.current;

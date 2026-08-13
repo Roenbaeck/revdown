@@ -11,6 +11,7 @@ import { DocumentMinimap } from "../components/DocumentMinimap";
 import { DocumentOutline } from "../components/DocumentOutline";
 import { DocumentSurface } from "../components/DocumentSurface";
 import { ReviewPanel } from "../components/ReviewPanel";
+import { ReaderSettingsPanel } from "../components/ReaderSettingsPanel";
 import { SelectionComposer } from "../components/SelectionComposer";
 import { Toolbar } from "../components/Toolbar";
 import {
@@ -27,6 +28,14 @@ import {
 import { fingerprintText } from "../lib/fingerprints";
 import { generateReviewMarkdown } from "../lib/export/review";
 import { parseMarkdownDocument } from "../lib/markdown/model";
+import {
+  applyReaderSettings,
+  loadReaderSettings,
+  resolveTheme,
+  saveReaderSettings,
+  themeWindowAppearance,
+  type ReaderSettings,
+} from "../lib/settings/reader";
 import {
   createAnchor,
   mapDomSelection,
@@ -67,14 +76,82 @@ export function App() {
     useState<PendingSelection | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [minimapOpen, setMinimapOpen] = useState(true);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [readerSettings, setReaderSettings] = useState<ReaderSettings>(() =>
+    loadReaderSettings(window.localStorage),
+  );
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+  const [windowFullscreen, setWindowFullscreen] = useState(false);
   const documentRegionRef = useRef<HTMLElement>(null);
   const sidecarRevisionRef = useRef<string | null>(null);
   const sidecarRef = useRef<SidecarV1 | null>(null);
   const saveQueueRef = useRef(Promise.resolve());
+  const closeAppearance = useCallback(() => setAppearanceOpen(false), []);
+  const toggleWindowFullscreen = useCallback(() => {
+    if (!native) return;
+    void native.setWindowFullscreen(!windowFullscreen).catch(() => undefined);
+  }, [native, windowFullscreen]);
 
   useEffect(() => {
     void getNativeService().then(setNative);
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    if (native) {
+      void native
+        .observeWindowFullscreen((fullscreen) => {
+          if (!cancelled) setWindowFullscreen(fullscreen);
+        })
+        .then((stop) => {
+          if (cancelled) stop();
+          else unsubscribe = stop;
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [native]);
+  useEffect(() => {
+    document.documentElement.dataset.windowFullscreen =
+      String(windowFullscreen);
+  }, [windowFullscreen]);
+  useEffect(() => {
+    const toggleWithKeyboard = (event: KeyboardEvent) => {
+      const macShortcut = event.metaKey && event.ctrlKey && event.key === "f";
+      if (macShortcut || (windowFullscreen && event.key === "Escape")) {
+        event.preventDefault();
+        toggleWindowFullscreen();
+      }
+    };
+    window.addEventListener("keydown", toggleWithKeyboard, true);
+    return () =>
+      window.removeEventListener("keydown", toggleWithKeyboard, true);
+  }, [toggleWindowFullscreen, windowFullscreen]);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setSystemDark(media.matches);
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+  useEffect(() => {
+    const theme = resolveTheme(readerSettings.theme, systemDark);
+    applyReaderSettings(document.documentElement, readerSettings, theme);
+    saveReaderSettings(window.localStorage, readerSettings);
+    if (native) {
+      void native
+        .setWindowAppearance(themeWindowAppearance(theme))
+        .catch(() => undefined);
+    }
+  }, [native, readerSettings, systemDark]);
   useEffect(() => {
     sidecarRevisionRef.current = state.sidecarRevision;
     sidecarRef.current = state.sidecar;
@@ -400,11 +477,15 @@ export function App() {
   };
 
   const comments = state.sidecar?.comments ?? [];
+  const resolvedTheme = resolveTheme(readerSettings.theme, systemDark);
   const ready =
     state.phase === "ready" && state.model && state.document && native;
 
   return (
     <div className="appShell">
+      <a className="skipLink" href="#document-surface">
+        Skip to document
+      </a>
       <Toolbar
         filename={state.document?.filename}
         filter={state.filter}
@@ -416,11 +497,15 @@ export function App() {
         canNavigate={Boolean(ready)}
         outlineOpen={outlineOpen}
         minimapOpen={minimapOpen}
+        appearanceOpen={appearanceOpen}
+        windowFullscreen={windowFullscreen}
         onOpen={() => void openDocument()}
         onComment={captureSelection}
         onTogglePanel={() => dispatch({ type: "toggle_panel" })}
         onToggleOutline={() => setOutlineOpen((open) => !open)}
         onToggleMinimap={() => setMinimapOpen((open) => !open)}
+        onToggleAppearance={() => setAppearanceOpen((open) => !open)}
+        onToggleFullscreen={toggleWindowFullscreen}
         onFilter={(filter: CommentFilter) =>
           dispatch({ type: "set_filter", filter })
         }
@@ -430,6 +515,14 @@ export function App() {
         onExport={() => void exportReview()}
         onCopy={() => void copyReview()}
       />
+
+      {appearanceOpen && (
+        <ReaderSettingsPanel
+          settings={readerSettings}
+          onChange={setReaderSettings}
+          onClose={closeAppearance}
+        />
+      )}
 
       {state.sourceChanged && (
         <div className="banner warningBanner" role="status">
@@ -586,6 +679,7 @@ export function App() {
             comments={comments}
             matches={state.matches}
             selectedCommentId={state.selectedCommentId}
+            theme={resolvedTheme}
             scrollContainerRef={documentRegionRef}
             onClose={() => setMinimapOpen(false)}
           />

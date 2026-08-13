@@ -22,9 +22,21 @@ function blockForRange(
   start: number,
   end: number,
 ): SourceBlock | undefined {
-  return [...model.blocks.values()].find(
-    (block) => start >= block.start && end <= block.end,
-  );
+  const blocks = model.blocksInSourceOrder;
+  let low = 0;
+  let high = blocks.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((blocks[middle]?.start ?? Number.POSITIVE_INFINITY) <= start)
+      low = middle + 1;
+    else high = middle;
+  }
+  for (let index = low - 1; index >= 0; index -= 1) {
+    const block = blocks[index];
+    if (!block) continue;
+    if (start >= block.start && end <= block.end) return block;
+  }
+  return undefined;
 }
 
 function allOccurrences(value: string, needle: string): number[] {

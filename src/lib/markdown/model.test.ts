@@ -54,6 +54,28 @@ describe("Markdown source model", () => {
     expect(model.html).not.toContain("onerror");
   });
 
+  it("renders the Markdown conformance fixture including footnotes and tasks", async () => {
+    const source = await readFile(
+      resolve("tests/fixtures/markdown-kitchen-sink.md"),
+      "utf8",
+    );
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    expect(model.html).toContain("<table>");
+    expect(model.html).toContain("<blockquote>");
+    expect(model.html).toContain('type="checkbox"');
+    expect(model.html).toContain("data-footnotes");
+    expect(model.html).toContain('href="#user-content-fn-');
+    expect(model.html).not.toContain('data-rd-href="#user-content-fn-');
+    expect(model.html).toContain("katex-display");
+    expect(model.html).toContain("--shiki-dark:");
+    expect(
+      [...model.blocks.values()].filter((block) => block.kind === "heading"),
+    ).toHaveLength(6);
+  });
+
   it("keeps a 1 MiB document within the initial readability budget", async () => {
     const heading = "# Large fixture\n\n";
     const source =

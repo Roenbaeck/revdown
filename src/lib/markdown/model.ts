@@ -45,6 +45,7 @@ export type MarkdownDocumentModel = {
   fingerprint: DocumentFingerprint;
   html: string;
   blocks: ReadonlyMap<string, SourceBlock>;
+  blocksInSourceOrder: readonly SourceBlock[];
 };
 
 type Positioned = {
@@ -505,7 +506,11 @@ function mappedSpan(
 function codeTokenStyle(token: HighlightToken): string | undefined {
   const declarations: string[] = [];
   if (token.color && /^#[0-9a-f]{3,8}$/iu.test(token.color))
-    declarations.push(`color:${token.color}`);
+    declarations.push(`--shiki-light:${token.color}`);
+  if (token.darkColor && /^#[0-9a-f]{3,8}$/iu.test(token.darkColor))
+    declarations.push(`--shiki-dark:${token.darkColor}`);
+  if (token.color || token.darkColor)
+    declarations.push("color:var(--shiki-token-color,var(--shiki-light))");
   if (token.fontStyle !== undefined) {
     if ((token.fontStyle & 1) !== 0) declarations.push("font-style:italic");
     if ((token.fontStyle & 2) !== 0) declarations.push("font-weight:700");
@@ -607,6 +612,7 @@ function secureLinksAndImages(root: HastRoot): void {
     if (element.tagName === "a") {
       const href = element.properties.href;
       if (typeof href === "string") {
+        if (href.startsWith("#")) return;
         element.properties["data-rd-href"] = href;
         element.properties.href = "#";
         element.properties.rel = ["noopener", "noreferrer"];
@@ -655,9 +661,12 @@ export async function parseMarkdownDocument(
       }),
     ),
   );
-  const blocks = new Map(blocksWithHashes.map((block) => [block.id, block]));
+  const blocksInSourceOrder = blocksWithHashes.sort(
+    (a, b) => a.start - b.start || b.end - a.end,
+  );
+  const blocks = new Map(blocksInSourceOrder.map((block) => [block.id, block]));
   const html = String(unified().use(rehypeStringify).stringify(withMath));
-  return { source, fingerprint, html, blocks };
+  return { source, fingerprint, html, blocks, blocksInSourceOrder };
 }
 
 export function isInlineCodeNode(node: MdastNode): node is InlineCode {

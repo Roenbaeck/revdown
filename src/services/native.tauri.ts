@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   ExportResult,
   LoadedSidecar,
@@ -6,6 +7,7 @@ import type {
   OpenedDocument,
   SaveResult,
   SourceRevision,
+  WindowAppearance,
 } from "./native";
 import { NativeServiceError } from "./native";
 
@@ -36,6 +38,8 @@ async function command<T>(
 }
 
 export class TauriNativeService implements NativeService {
+  private immersiveFullscreen = false;
+
   openDocument(): Promise<OpenedDocument | null> {
     return command("open_document");
   }
@@ -77,5 +81,35 @@ export class TauriNativeService implements NativeService {
 
   openExternal(url: string): Promise<void> {
     return command("open_external", { url });
+  }
+
+  async setWindowAppearance(appearance: WindowAppearance): Promise<void> {
+    const window = getCurrentWindow();
+    await Promise.all([
+      window.setTheme(appearance.theme),
+      window.setBackgroundColor(appearance.backgroundColor),
+    ]);
+  }
+
+  async setWindowFullscreen(fullscreen: boolean): Promise<void> {
+    await command("set_window_fullscreen", { fullscreen });
+  }
+
+  async observeWindowFullscreen(
+    listener: (fullscreen: boolean) => void,
+  ): Promise<() => void> {
+    const window = getCurrentWindow();
+    const unlisten = await window.listen<boolean>(
+      "revdown-fullscreen-changed",
+      ({ payload }) => {
+        this.immersiveFullscreen = payload;
+        listener(payload);
+      },
+    );
+    this.immersiveFullscreen = await command<boolean>(
+      "window_fullscreen_state",
+    );
+    listener(this.immersiveFullscreen);
+    return unlisten;
   }
 }

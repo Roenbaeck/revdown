@@ -25,6 +25,22 @@ async function selectRenderedText(
   }, text);
 }
 
+async function clickToolbarAction(
+  page: import("@playwright/test").Page,
+  menuName: "Export" | "View",
+  actionName: string | RegExp,
+) {
+  const action = page.getByRole("button", { name: actionName }).first();
+  if (!(await action.isVisible())) {
+    await page
+      .locator(".toolbarMenu")
+      .filter({ has: page.locator("summary", { hasText: menuName }) })
+      .locator("summary")
+      .click();
+  }
+  await page.getByRole("button", { name: actionName }).first().click();
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/?demo=1");
   await page.getByRole("button", { name: "Open Markdown" }).click();
@@ -42,6 +58,88 @@ test("renders GFM, code, and math through the browser harness", async ({
     "sourceIntegrity",
   );
   await expect(page.locator("#document-surface script")).toHaveCount(0);
+});
+
+test("renders the Markdown conformance fixture with working footnotes", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Open Markdown" }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles("tests/fixtures/markdown-kitchen-sink.md");
+
+  const surface = page.locator("#document-surface");
+  await expect(
+    page.getByRole("heading", { name: "Markdown kitchen sink" }),
+  ).toBeVisible();
+  await expect(surface.locator('input[type="checkbox"]')).toHaveCount(2);
+  await expect(surface.locator("table")).toContainText("Unicode");
+  await expect(surface.locator(".katex-display")).toBeVisible();
+  await expect(surface.locator("code.rd-highlighted-code")).toContainText(
+    "source-backed",
+  );
+  const footnote = surface.locator("[data-footnote-ref]").first();
+  await footnote.click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toContain("fn-");
+});
+
+test("persists themes and reading controls", async ({ page }) => {
+  await clickToolbarAction(page, "View", /Appearance/u);
+  const settings = page.getByRole("complementary", {
+    name: "Reading appearance",
+  });
+  await settings.getByLabel("Theme").selectOption("dark");
+  await settings.getByLabel("Typeface").selectOption("sans");
+  await settings.getByLabel("Text size").selectOption("extra-large");
+  await settings.getByLabel("Line spacing").selectOption("relaxed");
+  await settings.getByLabel("Line width").selectOption("narrow");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reader-size",
+    "extra-large",
+  );
+  const surface = page.locator("#document-surface");
+  await expect
+    .poll(() =>
+      surface.evaluate((element) => ({
+        font: getComputedStyle(element).fontFamily,
+        lineHeight: getComputedStyle(element).lineHeight,
+        width: element.getBoundingClientRect().width,
+      })),
+    )
+    .toMatchObject({ font: /sans-serif/u });
+  expect((await surface.boundingBox())?.width).toBeLessThanOrEqual(702);
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reader-width",
+    "narrow",
+  );
+});
+
+test("keeps narrow toolbar controls on one line", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await expect(page.locator(".toolbarViewMenu > summary")).toBeVisible();
+  await expect(page.locator(".toolbarExportMenu > summary")).toBeVisible();
+
+  const controls = page.locator(
+    ".toolbar > button:visible, .toolbar > label:visible select, .toolbar > details:visible > summary",
+  );
+  const measurements = await controls.evaluateAll((elements) =>
+    elements.map((element) => ({
+      height: element.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+      whiteSpace: getComputedStyle(element).whiteSpace,
+    })),
+  );
+  expect(new Set(measurements.map(({ height }) => height))).toEqual(
+    new Set([38]),
+  );
+  expect(measurements.every(({ whiteSpace }) => whiteSpace === "nowrap")).toBe(
+    true,
+  );
 });
 
 test("opens the example novel without blocking the document surface", async ({
@@ -74,9 +172,9 @@ test("opens the example novel without blocking the document surface", async ({
     )
     .toBeGreaterThan(0);
 
-  await page.getByRole("button", { name: "Hide outline" }).first().click();
+  await clickToolbarAction(page, "View", "Hide outline");
   await expect(outline).toBeHidden();
-  await page.getByRole("button", { name: "Show outline" }).click();
+  await clickToolbarAction(page, "View", "Show outline");
   await expect(outline).toBeVisible();
 
   const minimap = page.getByRole("button", {
@@ -185,7 +283,7 @@ test("exports a self-describing review to the clipboard", async ({
     .getByPlaceholder("What should change?")
     .fill("Add a concrete integrity example.");
   await composer.getByRole("button", { name: "Save comment" }).click();
-  await page.getByRole("button", { name: "Copy review" }).click();
+  await clickToolbarAction(page, "Export", "Copy review");
   await expect(page.getByText("Review copied to the clipboard.")).toBeVisible();
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboard).toContain("# Revdown review");
