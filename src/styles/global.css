@@ -257,7 +257,7 @@ textarea {
 }
 
 :root[data-platform="macos"][data-window-fullscreen="false"] .toolbar {
-  padding-left: max(5.25rem, env(safe-area-inset-left));
+  padding-left: max(6rem, env(safe-area-inset-left));
 }
 
 .brand {
@@ -725,21 +725,8 @@ textarea {
   min-width: 88px;
   min-height: 0;
   border-left: 1px solid var(--line);
-  padding: 0.55rem 0.45rem 0.65rem;
+  padding: 0.45rem;
   background: var(--panel-soft);
-}
-
-.minimapHeading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem;
-  margin-bottom: 0.45rem;
-  color: #455650;
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .minimapTrack {
@@ -762,7 +749,15 @@ textarea {
   background: var(--paper);
 }
 
-.minimapTrack canvas {
+.minimapDocument {
+  position: absolute;
+  inset: 0 0 auto;
+  display: block;
+  overflow: hidden;
+  width: 100%;
+}
+
+.minimapDocument canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -778,28 +773,6 @@ textarea {
   background: rgb(98 162 189 / 18%);
   box-shadow: 0 0 0 1px rgb(255 255 255 / 55%);
   pointer-events: none;
-}
-
-.minimapLegend {
-  display: grid;
-  grid-template-columns: auto 1fr auto 1fr;
-  align-items: center;
-  gap: 0.2rem;
-  margin-top: 0.45rem;
-  color: #68716b;
-  font-size: 0.58rem;
-}
-
-.minimapLegend .openMarker,
-.minimapLegend .resolvedMarker {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #c48e0a;
-}
-
-.minimapLegend .resolvedMarker {
-  background: #327293;
 }
 
 .panelHeading {

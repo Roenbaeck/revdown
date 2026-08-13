@@ -187,9 +187,9 @@ The macOS bundle opts out of display safe-area compatibility mode after keeping
 toolbar controls away from the camera housing with safe-area insets. Since
 native macOS full screen reserves the camera/menu-bar strip, Revdown's View >
 Full screen action uses the platform's simple full-screen mode so the window
-background reaches the display edge. Native macOS full-screen requests are
-converted to that same mode once AppKit finishes its Space transition.
-Control-Command-F uses the same path, and Escape exits it.
+background reaches the display edge without a Space transition. The macOS
+traffic-light control retains its native full-screen behavior. Revdown observes
+both modes so its View action and Escape can exit whichever mode is active.
 
 ## 8. File Conventions
 

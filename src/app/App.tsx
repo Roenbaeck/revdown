@@ -681,7 +681,6 @@ export function App() {
             selectedCommentId={state.selectedCommentId}
             theme={resolvedTheme}
             scrollContainerRef={documentRegionRef}
-            onClose={() => setMinimapOpen(false)}
           />
         )}
       </main>

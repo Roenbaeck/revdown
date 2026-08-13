@@ -19,19 +19,41 @@ type DocumentMinimapProps = {
   selectedCommentId: string | null;
   theme: ResolvedTheme;
   scrollContainerRef: RefObject<HTMLElement>;
-  onClose: () => void;
 };
 
 type Viewport = { top: number; height: number };
+
+const MIN_DOCUMENT_HEIGHT = 72;
+const PIXELS_PER_ESTIMATED_LINE = 1.6;
+const ESTIMATED_CHARACTERS_PER_LINE = 72;
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function naturalDocumentHeight(model: MarkdownDocumentModel): number {
+  const sourceLines = model.blocksInSourceOrder.reduce(
+    (maximum, block) => Math.max(maximum, block.lineEnd),
+    1,
+  );
+  const wrappedLines = Math.ceil(
+    model.source.length / ESTIMATED_CHARACTERS_PER_LINE,
+  );
+  return Math.max(
+    MIN_DOCUMENT_HEIGHT,
+    Math.max(sourceLines, wrappedLines) * PIXELS_PER_ESTIMATED_LINE,
+  );
+}
+
 export function DocumentMinimap(props: DocumentMinimapProps) {
   const trackRef = useRef<HTMLButtonElement>(null);
+  const documentRef = useRef<HTMLSpanElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ top: 0, height: 1 });
+  const documentHeight = useMemo(
+    () => naturalDocumentHeight(props.model),
+    [props.model],
+  );
   const markers = useMemo(
     () =>
       props.comments.flatMap((comment) => {
@@ -78,11 +100,11 @@ export function DocumentMinimap(props: DocumentMinimapProps) {
   }, [props.scrollContainerRef]);
 
   useEffect(() => {
-    const track = trackRef.current;
+    const document = documentRef.current;
     const canvas = canvasRef.current;
-    if (!track || !canvas) return;
+    if (!document || !canvas) return;
     const draw = () => {
-      const { width, height } = track.getBoundingClientRect();
+      const { width, height } = document.getBoundingClientRect();
       const pixelRatio = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.round(width * pixelRatio));
       canvas.height = Math.max(1, Math.round(height * pixelRatio));
@@ -145,16 +167,16 @@ export function DocumentMinimap(props: DocumentMinimapProps) {
       }
     };
     const resizeObserver = new ResizeObserver(draw);
-    resizeObserver.observe(track);
+    resizeObserver.observe(document);
     draw();
     return () => resizeObserver.disconnect();
   }, [markers, props.model, props.selectedCommentId, props.theme]);
 
   const navigateToPointer = (event: PointerEvent<HTMLButtonElement>) => {
     const container = props.scrollContainerRef.current;
-    const track = trackRef.current;
-    if (!container || !track) return;
-    const bounds = track.getBoundingClientRect();
+    const document = documentRef.current;
+    if (!container || !document) return;
+    const bounds = document.getBoundingClientRect();
     const fraction = clamp((event.clientY - bounds.top) / bounds.height, 0, 1);
     const maximum = Math.max(
       0,
@@ -184,12 +206,6 @@ export function DocumentMinimap(props: DocumentMinimapProps) {
 
   return (
     <aside className="minimapPanel" aria-label="Document minimap panel">
-      <div className="minimapHeading">
-        <span>Map</span>
-        <button type="button" onClick={props.onClose} aria-label="Hide minimap">
-          ›
-        </button>
-      </div>
       <button
         ref={trackRef}
         className="minimapTrack"
@@ -206,22 +222,22 @@ export function DocumentMinimap(props: DocumentMinimapProps) {
         }}
         onKeyDown={handleKeyDown}
       >
-        <canvas ref={canvasRef} aria-hidden="true" />
         <span
-          className="minimapViewport"
+          ref={documentRef}
+          className="minimapDocument"
           aria-hidden="true"
-          style={{
-            top: `${viewport.top * 100}%`,
-            height: `${viewport.height * 100}%`,
-          }}
-        />
+          style={{ height: `min(100%, ${documentHeight}px)` }}
+        >
+          <canvas ref={canvasRef} />
+          <span
+            className="minimapViewport"
+            style={{
+              top: `${viewport.top * 100}%`,
+              height: `${viewport.height * 100}%`,
+            }}
+          />
+        </span>
       </button>
-      <div className="minimapLegend" aria-hidden="true">
-        <span className="openMarker" />
-        <span>Open</span>
-        <span className="resolvedMarker" />
-        <span>Done</span>
-      </div>
     </aside>
   );
 }

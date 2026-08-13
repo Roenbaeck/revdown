@@ -4,53 +4,33 @@ use std::sync::{
     Arc,
 };
 #[cfg(target_os = "macos")]
-use std::time::Duration;
-#[cfg(target_os = "macos")]
 use tauri::Manager;
 use tauri::{Emitter, State, Window, WindowEvent};
 
 const FULLSCREEN_EVENT: &str = "revdown-fullscreen-changed";
 
-#[cfg(any(target_os = "macos", test))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FullscreenAction {
-    None,
-    ExitNative,
-    EnterImmersive,
-}
-
 #[derive(Default)]
 pub struct FullscreenState {
     immersive: AtomicBool,
-    converting_native: AtomicBool,
-    enter_pending: AtomicBool,
+    native: AtomicBool,
 }
 
 impl FullscreenState {
-    #[cfg(any(target_os = "macos", test))]
-    fn action_for_resize(&self, native_fullscreen: bool) -> FullscreenAction {
-        if native_fullscreen {
-            if self.immersive.load(Ordering::SeqCst)
-                || self.converting_native.swap(true, Ordering::SeqCst)
-            {
-                FullscreenAction::None
-            } else {
-                FullscreenAction::ExitNative
-            }
-        } else if self.converting_native.swap(false, Ordering::SeqCst) {
-            self.enter_pending.store(true, Ordering::SeqCst);
-            FullscreenAction::EnterImmersive
-        } else {
-            FullscreenAction::None
-        }
+    fn set(&self, immersive: bool, native: bool) {
+        self.immersive.store(immersive, Ordering::SeqCst);
+        self.native.store(native, Ordering::SeqCst);
     }
 
-    fn set_immersive(&self, immersive: bool) {
-        self.immersive.store(immersive, Ordering::SeqCst);
-        if !immersive {
-            self.converting_native.store(false, Ordering::SeqCst);
-            self.enter_pending.store(false, Ordering::SeqCst);
+    fn current(&self) -> bool {
+        self.immersive.load(Ordering::SeqCst) || self.native.load(Ordering::SeqCst)
+    }
+
+    fn record_native_transition(&self, native: bool) -> Option<bool> {
+        if self.immersive.load(Ordering::SeqCst) {
+            return None;
         }
+        let previous = self.native.swap(native, Ordering::SeqCst);
+        (previous != native).then_some(native)
     }
 }
 
@@ -80,46 +60,47 @@ pub fn set_window_fullscreen(
     state: State<'_, Arc<FullscreenState>>,
     fullscreen: bool,
 ) -> Result<(), FullscreenError> {
+    let native = window
+        .is_fullscreen()
+        .map_err(|_| FullscreenError::native())?;
+
     #[cfg(target_os = "macos")]
     {
         if fullscreen {
-            if state.immersive.load(Ordering::SeqCst) {
-                return Ok(());
-            }
-            if window
-                .is_fullscreen()
-                .map_err(|_| FullscreenError::native())?
-            {
-                state.converting_native.store(true, Ordering::SeqCst);
-                window
-                    .set_fullscreen(false)
-                    .map_err(|_| FullscreenError::native())?;
+            if state.current() || native {
+                if native {
+                    state.set(false, true);
+                }
+                report(&window, true);
                 return Ok(());
             }
             window
                 .set_simple_fullscreen(true)
                 .map_err(|_| FullscreenError::native())?;
+            state.set(true, false);
         } else {
-            window
-                .set_simple_fullscreen(false)
-                .map_err(|_| FullscreenError::native())?;
-            if window
-                .is_fullscreen()
-                .map_err(|_| FullscreenError::native())?
-            {
+            if state.immersive.load(Ordering::SeqCst) {
+                window
+                    .set_simple_fullscreen(false)
+                    .map_err(|_| FullscreenError::native())?;
+            }
+            if native {
                 window
                     .set_fullscreen(false)
                     .map_err(|_| FullscreenError::native())?;
             }
+            state.set(false, false);
         }
     }
 
     #[cfg(not(target_os = "macos"))]
-    window
-        .set_fullscreen(fullscreen)
-        .map_err(|_| FullscreenError::native())?;
+    {
+        window
+            .set_fullscreen(fullscreen)
+            .map_err(|_| FullscreenError::native())?;
+        state.set(fullscreen, false);
+    }
 
-    state.set_immersive(fullscreen);
     report(&window, fullscreen);
     Ok(())
 }
@@ -129,45 +110,24 @@ pub fn window_fullscreen_state(
     window: Window,
     state: State<'_, Arc<FullscreenState>>,
 ) -> Result<bool, FullscreenError> {
-    Ok(state.immersive.load(Ordering::SeqCst)
-        || window
-            .is_fullscreen()
-            .map_err(|_| FullscreenError::native())?)
+    let native = window
+        .is_fullscreen()
+        .map_err(|_| FullscreenError::native())?;
+    if !state.immersive.load(Ordering::SeqCst) {
+        state.native.store(native, Ordering::SeqCst);
+    }
+    Ok(state.current() || native)
 }
 
 #[cfg(target_os = "macos")]
 pub fn handle_window_event(window: &Window, event: &WindowEvent) {
     if matches!(event, WindowEvent::Resized(_)) {
         let state = window.state::<Arc<FullscreenState>>();
-        let Ok(native_fullscreen) = window.is_fullscreen() else {
+        let Ok(native) = window.is_fullscreen() else {
             return;
         };
-        match state.action_for_resize(native_fullscreen) {
-            FullscreenAction::None => {}
-            FullscreenAction::ExitNative => {
-                let _ = window.set_fullscreen(false);
-            }
-            FullscreenAction::EnterImmersive => {
-                let window = window.clone();
-                let state = Arc::clone(state.inner());
-                std::thread::spawn(move || {
-                    // AppKit reports the final non-full-screen resize before it
-                    // has completely left the native full-screen Space. Waiting
-                    // for that transition prevents the simple-full-screen request
-                    // from being ignored by tao's native-full-screen guard.
-                    std::thread::sleep(Duration::from_millis(750));
-                    if !state.enter_pending.swap(false, Ordering::SeqCst) {
-                        return;
-                    }
-                    if window.is_fullscreen().unwrap_or(true) {
-                        return;
-                    }
-                    if window.set_simple_fullscreen(true).is_ok() {
-                        state.set_immersive(true);
-                        report(&window, true);
-                    }
-                });
-            }
+        if let Some(fullscreen) = state.record_native_transition(native) {
+            report(window, fullscreen);
         }
     }
 }
@@ -177,24 +137,22 @@ pub fn handle_window_event(_window: &Window, _event: &WindowEvent) {}
 
 #[cfg(test)]
 mod tests {
-    use super::{FullscreenAction, FullscreenState};
+    use super::FullscreenState;
 
     #[test]
-    fn native_fullscreen_converts_after_its_exit_resize() {
+    fn native_fullscreen_transitions_are_reported_once() {
         let state = FullscreenState::default();
-        assert_eq!(state.action_for_resize(true), FullscreenAction::ExitNative);
-        assert_eq!(state.action_for_resize(true), FullscreenAction::None);
-        assert_eq!(
-            state.action_for_resize(false),
-            FullscreenAction::EnterImmersive
-        );
-        assert_eq!(state.action_for_resize(false), FullscreenAction::None);
+        assert_eq!(state.record_native_transition(false), None);
+        assert_eq!(state.record_native_transition(true), Some(true));
+        assert_eq!(state.record_native_transition(true), None);
+        assert_eq!(state.record_native_transition(false), Some(false));
     }
 
     #[test]
-    fn immersive_windows_ignore_native_resize_conversion() {
+    fn native_resize_events_do_not_override_immersive_state() {
         let state = FullscreenState::default();
-        state.set_immersive(true);
-        assert_eq!(state.action_for_resize(true), FullscreenAction::None);
+        state.set(true, false);
+        assert_eq!(state.record_native_transition(true), None);
+        assert!(state.current());
     }
 }

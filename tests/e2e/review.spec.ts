@@ -142,6 +142,23 @@ test("keeps narrow toolbar controls on one line", async ({ page }) => {
   );
 });
 
+test("keeps a short document compact at the top of the minimap", async ({
+  page,
+}) => {
+  const track = page.getByRole("button", {
+    name: "Document minimap with 0 comment markers",
+  });
+  const document = track.locator(".minimapDocument");
+  const [trackBounds, documentBounds] = await Promise.all([
+    track.boundingBox(),
+    document.boundingBox(),
+  ]);
+  if (!trackBounds || !documentBounds)
+    throw new Error("Expected a visible minimap document");
+  expect(documentBounds.y - trackBounds.y).toBeLessThanOrEqual(1);
+  expect(documentBounds.height).toBeLessThan(trackBounds.height / 2);
+});
+
 test("opens the example novel without blocking the document surface", async ({
   page,
 }) => {
@@ -181,8 +198,22 @@ test("opens the example novel without blocking the document surface", async ({
     name: "Document minimap with 0 comment markers",
   });
   await expect(minimap).toBeVisible();
+  const minimapPanel = page.getByRole("complementary", {
+    name: "Document minimap panel",
+  });
   const minimapBounds = await minimap.boundingBox();
+  const minimapPanelBounds = await minimapPanel.boundingBox();
   if (!minimapBounds) throw new Error("Expected a visible minimap");
+  if (!minimapPanelBounds) throw new Error("Expected a visible minimap panel");
+  expect(minimapBounds.height).toBeGreaterThan(minimapPanelBounds.height - 16);
+  const minimapDocumentBounds = await minimap
+    .locator(".minimapDocument")
+    .boundingBox();
+  if (!minimapDocumentBounds)
+    throw new Error("Expected a visible minimap document");
+  expect(minimapDocumentBounds.height).toBeGreaterThanOrEqual(
+    minimapBounds.height - 2,
+  );
   await page.mouse.click(
     minimapBounds.x + minimapBounds.width / 2,
     minimapBounds.y + minimapBounds.height * 0.8,
