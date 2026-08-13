@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { fingerprintText } from "../fingerprints";
 import { buildBoundaryMap, parseMarkdownDocument } from "./model";
 
@@ -65,6 +67,17 @@ describe("Markdown source model", () => {
       await fingerprintText(source),
     );
     expect(model.html).toContain("source-backed paragraph");
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("renders the example novel without degrading with its block count", async () => {
+    const source = await readFile(resolve("Subnosis.md"), "utf8");
+    const started = performance.now();
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    expect(model.blocks.size).toBeGreaterThan(9_000);
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 });

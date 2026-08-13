@@ -44,6 +44,23 @@ test("renders GFM, code, and math through the browser harness", async ({
   await expect(page.locator("#document-surface script")).toHaveCount(0);
 });
 
+test("opens the example novel without blocking the document surface", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Open Markdown" }).click();
+  const chooser = await chooserPromise;
+  const started = Date.now();
+  await chooser.setFiles("Subnosis.md");
+  const surface = page.locator("#document-surface");
+  await expect(surface).toBeVisible();
+  expect(await surface.locator("[data-rd-block-id]").count()).toBeGreaterThan(
+    9_000,
+  );
+  expect(Date.now() - started).toBeLessThan(5_000);
+});
+
 test("creates, manages, and navigates a source-backed comment", async ({
   page,
 }) => {

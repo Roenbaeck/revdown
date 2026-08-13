@@ -269,50 +269,84 @@ function classNames(element: Element): string[] {
   return typeof value === "string" ? value.split(/\s+/u) : [];
 }
 
-function matchesPosition(
-  element: Element,
-  start: number,
-  end: number,
-): boolean {
-  return (
-    element.position?.start.offset === start &&
-    element.position.end.offset === end
-  );
+type PositionedElement = {
+  element: Element;
+  start: number;
+  end: number;
+};
+
+type ElementIndex = {
+  byPosition: ReadonlyMap<string, readonly Element[]>;
+  listItems: readonly PositionedElement[];
+};
+
+function positionKey(start: number, end: number): string {
+  return `${start}:${end}`;
 }
 
-function findElement(
-  root: HastRoot,
+function indexElements(root: HastRoot): ElementIndex {
+  const byPosition = new Map<string, Element[]>();
+  const listItems: PositionedElement[] = [];
+  visit(root, "element", (element) => {
+    const range = offsets(element as Positioned);
+    if (!range) return;
+    const key = positionKey(range.start, range.end);
+    const candidates = byPosition.get(key);
+    if (candidates) candidates.push(element);
+    else byPosition.set(key, [element]);
+    if (element.tagName === "li") listItems.push({ element, ...range });
+  });
+  return { byPosition, listItems };
+}
+
+function findIndexedElement(
+  index: ElementIndex,
+  start: number,
+  end: number,
   predicate: (element: Element) => boolean,
 ): Element | undefined {
-  let found: Element | undefined;
-  visit(root, "element", (element) => {
-    if (!found && predicate(element)) found = element;
-  });
-  return found;
+  return index.byPosition.get(positionKey(start, end))?.find(predicate);
 }
 
-function findTightListItem(
-  root: HastRoot,
-  start: number,
-  end: number,
-): Element | undefined {
-  let found: Element | undefined;
-  let foundWidth = Number.POSITIVE_INFINITY;
-  visit(root, "element", (element) => {
-    if (
-      element.tagName !== "li" ||
-      element.properties["data-rd-block-id"] !== undefined
-    )
-      return;
-    const range = offsets(element as Positioned);
-    if (!range || range.start > start || range.end < end) return;
-    const width = range.end - range.start;
-    if (width < foundWidth) {
-      found = element;
-      foundWidth = width;
+function lowerBoundByStart(blocks: readonly PendingBlock[], start: number) {
+  let low = 0;
+  let high = blocks.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((blocks[middle]?.start ?? Number.POSITIVE_INFINITY) < start)
+      low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function indexTightListParagraphs(
+  blocks: readonly PendingBlock[],
+  listItems: readonly PositionedElement[],
+): ReadonlyMap<string, Element> {
+  const paragraphs = blocks
+    .filter((block) => block.kind === "paragraph")
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const matches = new Map<string, { element: Element; width: number }>();
+  for (const listItem of listItems) {
+    const width = listItem.end - listItem.start;
+    for (
+      let index = lowerBoundByStart(paragraphs, listItem.start);
+      index < paragraphs.length;
+      index += 1
+    ) {
+      const paragraph = paragraphs[index];
+      if (!paragraph || paragraph.start > listItem.end) break;
+      if (paragraph.end > listItem.end) continue;
+      const previous = matches.get(paragraph.id);
+      if (!previous || width < previous.width) {
+        matches.set(paragraph.id, { element: listItem.element, width });
+      }
     }
-  });
-  return found;
+  }
+  return new Map(
+    [...matches].map(([blockId, match]) => [blockId, match.element]),
+  );
 }
 
 function restoreSourceMetadata(
@@ -320,27 +354,33 @@ function restoreSourceMetadata(
   blocks: PendingBlock[],
   inlines: InlineRecord[],
 ): void {
+  const index = indexElements(root);
+  const tightListParagraphs = indexTightListParagraphs(blocks, index.listItems);
   for (const block of blocks) {
-    let element = findElement(root, (candidate) => {
-      if (!matchesPosition(candidate, block.start, block.end)) return false;
-      if (block.kind === "code") return candidate.tagName === "code";
-      if (block.kind === "math") {
-        const classes = classNames(candidate);
-        return (
-          (candidate.tagName === "code" &&
-            (classes.includes("math-display") ||
-              classes.includes("language-math"))) ||
-          classes.includes("katex-display")
-        );
-      }
-      if (block.kind === "tableCell")
-        return candidate.tagName === "td" || candidate.tagName === "th";
-      return true;
-    });
+    let element = findIndexedElement(
+      index,
+      block.start,
+      block.end,
+      (candidate) => {
+        if (block.kind === "code") return candidate.tagName === "code";
+        if (block.kind === "math") {
+          const classes = classNames(candidate);
+          return (
+            (candidate.tagName === "code" &&
+              (classes.includes("math-display") ||
+                classes.includes("language-math"))) ||
+            classes.includes("katex-display")
+          );
+        }
+        if (block.kind === "tableCell")
+          return candidate.tagName === "td" || candidate.tagName === "th";
+        return true;
+      },
+    );
     // Tight Markdown lists flatten their paragraph wrapper into the `li`.
     // Use the smallest enclosing list item while retaining paragraph offsets.
     if (!element && block.kind === "paragraph") {
-      element = findTightListItem(root, block.start, block.end);
+      element = tightListParagraphs.get(block.id);
     }
     if (element) {
       element.properties["data-rd-block-id"] = block.id;
@@ -351,21 +391,25 @@ function restoreSourceMetadata(
   }
 
   for (const inline of inlines) {
-    const element = findElement(root, (candidate) => {
-      if (!matchesPosition(candidate, inline.start, inline.end)) return false;
-      if (inline.kind === "emphasis") return candidate.tagName === "em";
-      if (inline.kind === "strong") return candidate.tagName === "strong";
-      if (inline.kind === "delete") return candidate.tagName === "del";
-      if (inline.kind === "link") return candidate.tagName === "a";
-      if (inline.kind === "inlineCode") return candidate.tagName === "code";
-      const classes = classNames(candidate);
-      return (
-        (candidate.tagName === "code" &&
-          (classes.includes("math-inline") ||
-            classes.includes("language-math"))) ||
-        classes.includes("katex")
-      );
-    });
+    const element = findIndexedElement(
+      index,
+      inline.start,
+      inline.end,
+      (candidate) => {
+        if (inline.kind === "emphasis") return candidate.tagName === "em";
+        if (inline.kind === "strong") return candidate.tagName === "strong";
+        if (inline.kind === "delete") return candidate.tagName === "del";
+        if (inline.kind === "link") return candidate.tagName === "a";
+        if (inline.kind === "inlineCode") return candidate.tagName === "code";
+        const classes = classNames(candidate);
+        return (
+          (candidate.tagName === "code" &&
+            (classes.includes("math-inline") ||
+              classes.includes("language-math"))) ||
+          classes.includes("katex")
+        );
+      },
+    );
     if (!element) continue;
     element.properties["data-rd-inline-start"] = String(inline.start);
     element.properties["data-rd-inline-end"] = String(inline.end);
@@ -471,13 +515,15 @@ async function renderHighlightedCode(
   root: HastRoot,
   blocks: PendingBlock[],
 ): Promise<void> {
+  const elementsByBlockId = new Map<string, Element>();
+  visit(root, "element", (element) => {
+    const blockId = element.properties["data-rd-block-id"];
+    if (typeof blockId === "string") elementsByBlockId.set(blockId, element);
+  });
   const codeBlocks = blocks.filter((block) => block.kind === "code");
   await Promise.all(
     codeBlocks.map(async (block) => {
-      const element = findElement(
-        root,
-        (candidate) => candidate.properties["data-rd-block-id"] === block.id,
-      );
+      const element = elementsByBlockId.get(block.id);
       if (!element) return;
       const lines = await highlightCode(block.renderedText, block.codeLanguage);
       const children: ElementContent[] = [];
