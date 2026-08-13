@@ -35,6 +35,7 @@ export type SourceBlock = {
   headingPath: string[];
   sourceSha256: string;
   renderedText: string;
+  headingLevel?: number;
   codeLanguage?: string;
   codeMap?: number[];
 };
@@ -142,6 +143,9 @@ function collectSourceRecords(
         lineEnd: typedNode.position?.end.line ?? 1,
         headingPath: [...headingPath],
         renderedText: plainText(typedNode),
+        ...(typedNode.type === "heading"
+          ? { headingLevel: typedNode.depth }
+          : {}),
         ...(code?.lang ? { codeLanguage: code.lang } : {}),
         ...(codeMap ? { codeMap } : {}),
       });

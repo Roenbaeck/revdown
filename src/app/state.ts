@@ -101,7 +101,16 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "select_comment":
       return { ...state, selectedCommentId: action.id, panelOpen: true };
     case "local_sidecar":
-      return { ...state, sidecar: action.sidecar, matches: action.matches };
+      return {
+        ...state,
+        sidecar: action.sidecar,
+        matches: action.matches,
+        selectedCommentId: action.sidecar.comments.some(
+          (comment) => comment.id === state.selectedCommentId,
+        )
+          ? state.selectedCommentId
+          : null,
+      };
     case "save_started":
       return { ...state, saveStatus: "saving", message: null };
     case "save_succeeded":

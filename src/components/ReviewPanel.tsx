@@ -26,6 +26,7 @@ function CommentCard(
 ) {
   const { comment, match } = props;
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(comment.body);
   return (
     <article
@@ -102,29 +103,49 @@ function CommentCard(
           Confirm relocated anchor
         </button>
       )}
-      <div className="cardActions">
-        <button
-          type="button"
-          disabled={props.readOnly}
-          onClick={() => setEditing(true)}
+      {confirmingDelete ? (
+        <div
+          className="deleteConfirmation"
+          role="group"
+          aria-label="Confirm comment deletion"
         >
-          Edit
-        </button>
-        <button
-          type="button"
-          disabled={props.readOnly}
-          onClick={() => props.onToggleResolved(comment)}
-        >
-          {comment.status === "open" ? "Resolve" : "Reopen"}
-        </button>
-        <button
-          type="button"
-          disabled={props.readOnly}
-          onClick={() => props.onDelete(comment.id)}
-        >
-          Delete
-        </button>
-      </div>
+          <span>Delete permanently?</span>
+          <button type="button" onClick={() => setConfirmingDelete(false)}>
+            Cancel
+          </button>
+          <button
+            className="dangerButton"
+            type="button"
+            onClick={() => props.onDelete(comment.id)}
+          >
+            Delete comment
+          </button>
+        </div>
+      ) : (
+        <div className="cardActions">
+          <button
+            type="button"
+            disabled={props.readOnly}
+            onClick={() => setEditing(true)}
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            disabled={props.readOnly}
+            onClick={() => props.onToggleResolved(comment)}
+          >
+            {comment.status === "open" ? "Resolve" : "Reopen"}
+          </button>
+          <button
+            type="button"
+            disabled={props.readOnly}
+            onClick={() => setConfirmingDelete(true)}
+          >
+            Delete
+          </button>
+        </div>
+      )}
     </article>
   );
 }

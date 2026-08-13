@@ -34,6 +34,16 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
     const spans = [
       ...surface.querySelectorAll<HTMLElement>("[data-rd-source-start]"),
     ];
+    const positionedSpans = spans
+      .map((element) => ({
+        element,
+        start: Number(element.dataset.rdSourceStart),
+        end: Number(element.dataset.rdSourceEnd),
+      }))
+      .filter(
+        (span) => Number.isFinite(span.start) && Number.isFinite(span.end),
+      )
+      .sort((a, b) => a.start - b.start || a.end - b.end);
     for (const span of spans) {
       span.classList.remove(
         "rd-anchor",
@@ -48,25 +58,41 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
       const match = props.matches.get(comment.id);
       const candidate = match?.candidate;
       if (!match || !candidate) continue;
-      for (const span of spans) {
-        const start = Number(span.dataset.rdSourceStart);
-        const end = Number(span.dataset.rdSourceEnd);
+      let low = 0;
+      let high = positionedSpans.length;
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (
+          (positionedSpans[middle]?.start ?? Number.POSITIVE_INFINITY) <
+          candidate.sourceRange.start
+        )
+          low = middle + 1;
+        else high = middle;
+      }
+      for (
+        let index = Math.max(0, low - 1);
+        index < positionedSpans.length;
+        index += 1
+      ) {
+        const span = positionedSpans[index];
+        if (!span || span.start >= candidate.sourceRange.end) break;
         if (
           !overlaps(
-            start,
-            end,
+            span.start,
+            span.end,
             candidate.sourceRange.start,
             candidate.sourceRange.end,
           )
         )
           continue;
-        span.classList.add("rd-anchor", `rd-anchor-${match.state}`);
-        const ids = span.dataset.rdCommentIds?.split(",").filter(Boolean) ?? [];
-        span.dataset.rdCommentIds = [...new Set([...ids, comment.id])].join(
-          ",",
-        );
+        span.element.classList.add("rd-anchor", `rd-anchor-${match.state}`);
+        const ids =
+          span.element.dataset.rdCommentIds?.split(",").filter(Boolean) ?? [];
+        span.element.dataset.rdCommentIds = [
+          ...new Set([...ids, comment.id]),
+        ].join(",");
         if (comment.id === props.selectedCommentId)
-          span.classList.add("rd-anchor-selected");
+          span.element.classList.add("rd-anchor-selected");
       }
     }
   }, [

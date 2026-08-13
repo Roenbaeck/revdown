@@ -122,16 +122,22 @@ the source's purpose, voice, and style unless a comment directs otherwise.
 
 ### 7.1 Main window
 
-The desktop window has three stable regions:
+The desktop window has five stable regions:
 
-- A compact toolbar for opening a document, toggling the review panel,
-  filtering comment status, and exporting the review.
+- A compact toolbar for opening a document, toggling navigation and review
+  panels, filtering comment status, and exporting the review.
+- A collapsible document outline that lists source-backed headings and scrolls
+  directly to them.
 - A scrollable rendered-document surface where comment anchors are highlighted.
 - A resizable review panel listing comments in document order.
+- A collapsible, canvas-rendered minimap with a live viewport indicator and
+  visible markers for open and resolved comments.
 
 The document is the primary surface. Comments should be easy to discover but
 must not obscure the text. Selecting a comment scrolls to and emphasizes its
-anchor; selecting an anchor opens its comment.
+anchor; selecting an anchor opens its comment. Outline and minimap navigation
+must remain inexpensive for novel-sized documents and must not duplicate the
+entire rendered document as hidden DOM.
 
 ### 7.2 Creating a comment
 

@@ -7,6 +7,8 @@ import {
   useState,
 } from "react";
 import { BrandGlyph } from "../components/BrandGlyph";
+import { DocumentMinimap } from "../components/DocumentMinimap";
+import { DocumentOutline } from "../components/DocumentOutline";
 import { DocumentSurface } from "../components/DocumentSurface";
 import { ReviewPanel } from "../components/ReviewPanel";
 import { SelectionComposer } from "../components/SelectionComposer";
@@ -63,6 +65,9 @@ export function App() {
   const [native, setNative] = useState<NativeService | null>(null);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(true);
+  const [minimapOpen, setMinimapOpen] = useState(true);
+  const documentRegionRef = useRef<HTMLElement>(null);
   const sidecarRevisionRef = useRef<string | null>(null);
   const sidecarRef = useRef<SidecarV1 | null>(null);
   const saveQueueRef = useRef(Promise.resolve());
@@ -408,9 +413,14 @@ export function App() {
         saveStatus={state.saveStatus}
         canComment={Boolean(ready && state.sidecar && !state.sidecarIssue)}
         canExport={Boolean(ready && state.sidecar)}
+        canNavigate={Boolean(ready)}
+        outlineOpen={outlineOpen}
+        minimapOpen={minimapOpen}
         onOpen={() => void openDocument()}
         onComment={captureSelection}
         onTogglePanel={() => dispatch({ type: "toggle_panel" })}
+        onToggleOutline={() => setOutlineOpen((open) => !open)}
+        onToggleMinimap={() => setMinimapOpen((open) => !open)}
         onFilter={(filter: CommentFilter) =>
           dispatch({ type: "set_filter", filter })
         }
@@ -459,7 +469,15 @@ export function App() {
       )}
 
       <main className={`workspace ${state.panelOpen ? "withPanel" : ""}`}>
+        {outlineOpen && ready && (
+          <DocumentOutline
+            model={state.model!}
+            scrollContainerRef={documentRegionRef}
+            onClose={() => setOutlineOpen(false)}
+          />
+        )}
         <section
+          ref={documentRegionRef}
           className="documentRegion"
           aria-busy={state.phase === "loading"}
         >
@@ -535,13 +553,9 @@ export function App() {
                 }),
               )
             }
-            onDelete={(id) => {
-              if (
-                window.confirm("Delete this comment? This cannot be undone.")
-              ) {
-                mutateComment((sidecar) => deleteComment(sidecar, id));
-              }
-            }}
+            onDelete={(id) =>
+              mutateComment((sidecar) => deleteComment(sidecar, id))
+            }
             onConfirmCandidate={(
               comment: ReviewComment,
               candidate: AnchorCandidate,
@@ -564,6 +578,16 @@ export function App() {
                 });
               })
             }
+          />
+        )}
+        {minimapOpen && ready && (
+          <DocumentMinimap
+            model={state.model!}
+            comments={comments}
+            matches={state.matches}
+            selectedCommentId={state.selectedCommentId}
+            scrollContainerRef={documentRegionRef}
+            onClose={() => setMinimapOpen(false)}
           />
         )}
       </main>

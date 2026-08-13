@@ -5,13 +5,18 @@ type ToolbarProps = {
   filename: string | undefined;
   filter: CommentFilter;
   panelOpen: boolean;
+  outlineOpen: boolean;
+  minimapOpen: boolean;
   includeResolved: boolean;
   saveStatus: SaveStatus;
   canComment: boolean;
   canExport: boolean;
+  canNavigate: boolean;
   onOpen: () => void;
   onComment: () => void;
   onTogglePanel: () => void;
+  onToggleOutline: () => void;
+  onToggleMinimap: () => void;
   onFilter: (filter: CommentFilter) => void;
   onIncludeResolved: (value: boolean) => void;
   onExport: () => void;
@@ -86,10 +91,26 @@ export function Toolbar(props: ToolbarProps) {
       </button>
       <button
         type="button"
+        onClick={props.onToggleOutline}
+        aria-pressed={props.outlineOpen}
+        disabled={!props.canNavigate}
+      >
+        {props.outlineOpen ? "Hide outline" : "Show outline"}
+      </button>
+      <button
+        type="button"
         onClick={props.onTogglePanel}
         aria-pressed={props.panelOpen}
       >
         {props.panelOpen ? "Hide review" : "Show review"}
+      </button>
+      <button
+        type="button"
+        onClick={props.onToggleMinimap}
+        aria-pressed={props.minimapOpen}
+        disabled={!props.canNavigate}
+      >
+        {props.minimapOpen ? "Hide minimap" : "Show minimap"}
       </button>
     </header>
   );

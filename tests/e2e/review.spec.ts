@@ -59,6 +59,41 @@ test("opens the example novel without blocking the document surface", async ({
     9_000,
   );
   expect(Date.now() - started).toBeLessThan(5_000);
+
+  const outline = page.getByRole("complementary", {
+    name: "Document outline",
+  });
+  await expect(outline).toBeVisible();
+  expect(await outline.locator(".outlineList button").count()).toBeGreaterThan(
+    200,
+  );
+  await outline.locator(".outlineList button").nth(10).click();
+  await expect
+    .poll(() =>
+      page.locator(".documentRegion").evaluate((region) => region.scrollTop),
+    )
+    .toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: "Hide outline" }).first().click();
+  await expect(outline).toBeHidden();
+  await page.getByRole("button", { name: "Show outline" }).click();
+  await expect(outline).toBeVisible();
+
+  const minimap = page.getByRole("button", {
+    name: "Document minimap with 0 comment markers",
+  });
+  await expect(minimap).toBeVisible();
+  const minimapBounds = await minimap.boundingBox();
+  if (!minimapBounds) throw new Error("Expected a visible minimap");
+  await page.mouse.click(
+    minimapBounds.x + minimapBounds.width / 2,
+    minimapBounds.y + minimapBounds.height * 0.8,
+  );
+  await expect
+    .poll(() =>
+      page.locator(".documentRegion").evaluate((region) => region.scrollTop),
+    )
+    .toBeGreaterThan(1_000);
 });
 
 test("creates, manages, and navigates a source-backed comment", async ({
@@ -76,6 +111,11 @@ test("creates, manages, and navigates a source-backed comment", async ({
     page.getByText("Clarify why this distinction matters."),
   ).toBeVisible();
   await expect(
+    page.getByRole("button", {
+      name: "Document minimap with 1 comment marker",
+    }),
+  ).toBeVisible();
+  await expect(
     page.locator(".rd-anchor-selected, .rd-anchor").first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Resolve" }).click();
@@ -91,6 +131,22 @@ test("creates, manages, and navigates a source-backed comment", async ({
   await page.getByLabel("Filter comments").selectOption("open");
   await expect(
     page.getByText("Clarify why this distinction matters."),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete" }).click();
+  const confirmation = page.getByRole("group", {
+    name: "Confirm comment deletion",
+  });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: "Delete comment" }).click();
+  await expect(
+    page.getByText("Clarify why this distinction matters."),
+  ).toBeHidden();
+  await expect(page.locator(".commentCount")).toHaveText("0");
+  await expect(
+    page.getByRole("button", {
+      name: "Document minimap with 0 comment markers",
+    }),
   ).toBeVisible();
 });
 
