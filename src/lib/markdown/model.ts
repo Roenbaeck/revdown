@@ -304,6 +304,7 @@ function appendDecodedUnits(
 function decodeSourceUnits(
   raw: string,
   absoluteStart: number,
+  normalizeCarriageReturns: boolean,
 ): DecodedSourceUnit[] {
   const units: DecodedSourceUnit[] = [];
   let index = 0;
@@ -339,7 +340,7 @@ function decodeSourceUnits(
         continue;
       }
     }
-    if (current === "\r") {
+    if (current === "\r" && normalizeCarriageReturns) {
       const width = raw[index + 1] === "\n" ? 2 : 1;
       appendDecodedUnits(
         units,
@@ -452,7 +453,10 @@ export function buildBoundaryMap(
   }
 
   return alignSourceUnits(
-    decodeSourceUnits(raw, absoluteStart),
+    // Unified may either preserve CRLF in a text node or normalize it to LF,
+    // depending on the surrounding Markdown construct. Mirror the rendered
+    // representation so escapes and entities on the same line remain mappable.
+    decodeSourceUnits(raw, absoluteStart, !visible.includes("\r")),
     visible,
     options,
   );

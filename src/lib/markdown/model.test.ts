@@ -16,6 +16,9 @@ describe("Markdown source model", () => {
     expect(buildBoundaryMap("&amp;", "&", 4)).toEqual([4, 9]);
     expect(buildBoundaryMap("&copy;", "©", 2)).toEqual([2, 8]);
     expect(buildBoundaryMap("a\r\nb", "a\nb", 10)).toEqual([10, 11, 13, 14]);
+    expect(buildBoundaryMap("\\*\r\n&amp;", "*\r\n&", 5)).toEqual([
+      5, 7, 8, 9, 14,
+    ]);
     expect(buildBoundaryMap("😀", "😀", 3)).toEqual([3, 4, 5]);
   });
 
@@ -157,6 +160,22 @@ describe("Markdown source model", () => {
     expect(
       [...model.blocks.values()].filter((block) => block.kind === "heading"),
     ).toHaveLength(6);
+  });
+
+  it("keeps escaped text and entities mappable in a CRLF document", async () => {
+    const fixture = await readFile(
+      resolve("tests/fixtures/markdown-kitchen-sink.md"),
+      "utf8",
+    );
+    const source = fixture.replace(/\r\n?|\n/gu, "\n").replace(/\n/gu, "\r\n");
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+
+    expect(model.html).toContain("an escaped *asterisk*");
+    expect(model.html).toContain("an &#x26; entity");
+    expect(model.html).not.toContain("data-rd-source-unmappable");
   });
 
   describe.skipIf(isCi)("local performance budgets", () => {
