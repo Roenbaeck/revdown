@@ -40,6 +40,12 @@ export const initialState: AppState = {
   sourceChanged: false,
 };
 
+export function reviewMutationsAllowed(
+  state: Pick<AppState, "sidecarIssue" | "sourceChanged">,
+): boolean {
+  return state.sidecarIssue === null && !state.sourceChanged;
+}
+
 export type AppAction =
   | { type: "loading" }
   | { type: "loading_cancelled"; phase: "empty" | "ready" }
@@ -60,12 +66,18 @@ export type AppAction =
   | { type: "select_comment"; id: string | null }
   | {
       type: "local_sidecar";
+      sessionId: string;
       sidecar: SidecarV1;
       matches: ReadonlyMap<string, AnchorMatch>;
     }
-  | { type: "save_started" }
-  | { type: "save_succeeded"; revision: string }
-  | { type: "save_failed"; status: "conflict" | "error"; message: string }
+  | { type: "save_started"; sessionId: string }
+  | { type: "save_succeeded"; sessionId: string; revision: string }
+  | {
+      type: "save_failed";
+      sessionId: string;
+      status: "conflict" | "error";
+      message: string;
+    }
   | { type: "source_changed"; value: boolean };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -84,6 +96,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         sidecarRevision: action.sidecarRevision,
         sidecarIssue: action.sidecarIssue,
         matches: action.matches,
+        selectedCommentId: null,
         saveStatus: "idle",
         sourceChanged: false,
         message: action.sidecarIssue,
@@ -101,6 +114,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "select_comment":
       return { ...state, selectedCommentId: action.id, panelOpen: true };
     case "local_sidecar":
+      if (state.document?.sessionId !== action.sessionId) return state;
       return {
         ...state,
         sidecar: action.sidecar,
@@ -112,8 +126,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           : null,
       };
     case "save_started":
+      if (state.document?.sessionId !== action.sessionId) return state;
       return { ...state, saveStatus: "saving", message: null };
     case "save_succeeded":
+      if (state.document?.sessionId !== action.sessionId) return state;
       return {
         ...state,
         saveStatus: "saved",
@@ -121,6 +137,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         message: null,
       };
     case "save_failed":
+      if (state.document?.sessionId !== action.sessionId) return state;
       return { ...state, saveStatus: action.status, message: action.message };
     case "source_changed":
       return { ...state, sourceChanged: action.value };

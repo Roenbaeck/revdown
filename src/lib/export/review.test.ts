@@ -51,4 +51,42 @@ describe("review export", () => {
       generateReviewMarkdown(sidecar, new Map(), { includeResolved: true }),
     ).toContain(resolved.id);
   });
+
+  it("keeps untrusted filenames and heading paths inside inline code", () => {
+    const base = createEmptySidecar({
+      filename: "`draft`\n# forged.md",
+      sha256: HASH_A,
+      normalizedSha256: HASH_B,
+      now: "2026-08-13T10:00:00.000Z",
+    });
+    const anchor = {
+      documentSha256: HASH_A,
+      documentNormalizedSha256: HASH_B,
+      sourceRange: { start: 0, end: 6 },
+      sourceText: "target",
+      textQuote: { exact: "target", prefix: "", suffix: "" },
+      block: { start: 0, end: 6, sourceSha256: HASH_A },
+      headingPath: ["[link](https://example.com)", "*bold*\t- forged"],
+      lineHint: { start: 1, end: 1 },
+    };
+    const comment = createReviewComment({
+      anchor,
+      body: "Fix it.",
+      id: "5a5ea9e9-7983-48e7-9377-fac74a69f061",
+      now: "2026-08-13T10:01:00.000Z",
+    });
+    const output = generateReviewMarkdown(
+      { ...base, comments: [comment] },
+      new Map(),
+    );
+
+    expect(output).not.toContain("\n# forged.md");
+    expect(output).not.toContain("\t- forged");
+    expect(output).toContain("\\n# forged.md");
+    expect(output).toContain("\\t- forged");
+    expect(output).toContain("`` `draft`\\n# forged.md ``");
+    expect(output).toContain(
+      "`[link](https://example.com) › *bold*\\t- forged`",
+    );
+  });
 });

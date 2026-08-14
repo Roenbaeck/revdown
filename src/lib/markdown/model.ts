@@ -25,6 +25,19 @@ export type SupportedBlockKind =
   | "tableCell"
   | "math";
 
+export type RenderedSourceSpan = {
+  renderedStart: number;
+  renderedEnd: number;
+  sourceMap: readonly number[];
+};
+
+export type RenderedInlineRange = {
+  renderedStart: number;
+  renderedEnd: number;
+  sourceStart: number;
+  sourceEnd: number;
+};
+
 export type SourceBlock = {
   id: string;
   kind: SupportedBlockKind;
@@ -35,6 +48,8 @@ export type SourceBlock = {
   headingPath: string[];
   sourceSha256: string;
   renderedText: string;
+  renderedSpans: readonly RenderedSourceSpan[];
+  renderedInlineRanges: readonly RenderedInlineRange[];
   headingLevel?: number;
   codeLanguage?: string;
   codeMap?: number[];
@@ -64,6 +79,12 @@ type InlineRecord = {
 
 type PendingBlock = Omit<SourceBlock, "sourceSha256">;
 
+type RenderedMapping = {
+  text: string;
+  spans: RenderedSourceSpan[];
+  inlineRanges: RenderedInlineRange[];
+};
+
 function offsets(node: Positioned): { start: number; end: number } | undefined {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
@@ -80,6 +101,7 @@ function plainText(node: MdastNode): string {
   }
   if (node.type === "break") return "\n";
   if (node.type === "image") return node.alt ?? "";
+  if (node.type === "html") return "";
   if ("children" in node)
     return node.children.map((child) => plainText(child)).join("");
   if ("value" in node && typeof node.value === "string") return node.value;
@@ -93,6 +115,75 @@ function blockKind(node: MdastNode): SupportedBlockKind | undefined {
   if (node.type === "tableCell") return "tableCell";
   if (node.type === "math") return "math";
   return undefined;
+}
+
+function renderedMapping(source: string, node: MdastNode): RenderedMapping {
+  const range = offsets(node as Positioned);
+  let mapping: RenderedMapping;
+  if (
+    node.type === "text" ||
+    node.type === "inlineCode" ||
+    node.type === "inlineMath" ||
+    node.type === "code" ||
+    node.type === "math" ||
+    node.type === "image" ||
+    node.type === "break"
+  ) {
+    const text = plainText(node);
+    const sourceMap =
+      range && text
+        ? node.type === "code"
+          ? buildCodeBoundaryMap(source, node, range.start, range.end)
+          : buildBoundaryMap(
+              source.slice(range.start, range.end),
+              text,
+              range.start,
+            )
+        : undefined;
+    mapping = {
+      text,
+      spans: sourceMap
+        ? [{ renderedStart: 0, renderedEnd: text.length, sourceMap }]
+        : [],
+      inlineRanges: [],
+    };
+  } else if ("children" in node) {
+    let text = "";
+    const spans: RenderedSourceSpan[] = [];
+    const inlineRanges: RenderedInlineRange[] = [];
+    for (const child of node.children) {
+      const childMapping = renderedMapping(source, child);
+      const offset = text.length;
+      text += childMapping.text;
+      spans.push(
+        ...childMapping.spans.map((span) => ({
+          ...span,
+          renderedStart: span.renderedStart + offset,
+          renderedEnd: span.renderedEnd + offset,
+        })),
+      );
+      inlineRanges.push(
+        ...childMapping.inlineRanges.map((inline) => ({
+          ...inline,
+          renderedStart: inline.renderedStart + offset,
+          renderedEnd: inline.renderedEnd + offset,
+        })),
+      );
+    }
+    mapping = { text, spans, inlineRanges };
+  } else {
+    mapping = { text: "", spans: [], inlineRanges: [] };
+  }
+
+  if (range && inlineKind(node) && mapping.text) {
+    mapping.inlineRanges.push({
+      renderedStart: 0,
+      renderedEnd: mapping.text.length,
+      sourceStart: range.start,
+      sourceEnd: range.end,
+    });
+  }
+  return mapping;
 }
 
 function inlineKind(node: MdastNode): InlineRecord["kind"] | undefined {
@@ -130,6 +221,7 @@ function collectSourceRecords(
     const range = offsets(typedNode as Positioned);
     const kind = blockKind(typedNode);
     if (kind && range) {
+      const rendered = renderedMapping(source, typedNode);
       const id = `${kind}:${range.start}:${range.end}`;
       const code = typedNode.type === "code" ? typedNode : undefined;
       const codeMap = code
@@ -143,7 +235,9 @@ function collectSourceRecords(
         lineStart: typedNode.position?.start.line ?? 1,
         lineEnd: typedNode.position?.end.line ?? 1,
         headingPath: [...headingPath],
-        renderedText: plainText(typedNode),
+        renderedText: rendered.text,
+        renderedSpans: rendered.spans,
+        renderedInlineRanges: rendered.inlineRanges,
         ...(typedNode.type === "heading"
           ? { headingLevel: typedNode.depth }
           : {}),

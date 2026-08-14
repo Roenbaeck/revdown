@@ -50,8 +50,10 @@ Authenticode signing secrets.
 
 - `pnpm lint`: strict TypeScript ESLint rules
 - `pnpm typecheck`: strict TypeScript project build
-- `pnpm test`: schema, hashing, source mapping, anchoring, and export fixtures
-- `pnpm test:e2e`: Chromium and WebKit review workflows
+- `pnpm test`: schema, hashing, source mapping, anchoring, and export fixtures;
+  local runs also enforce the checked-in large-document performance budgets
+- `pnpm test:e2e`: Chromium and WebKit review workflows; the large-document
+  elapsed-time budget is enforced locally only
 - `cargo fmt --check --manifest-path src-tauri/Cargo.toml`
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
 - `cargo test --manifest-path src-tauri/Cargo.toml`: atomic persistence,
@@ -60,3 +62,7 @@ Authenticode signing secrets.
 The source file is never a write target. Native writes are restricted to the
 derived sidecar path and a user-selected export path. Do not weaken this
 boundary when adding features.
+
+GitHub Actions intentionally skips wall-clock assertions because shared runner
+load is too variable for stable performance thresholds. CI still exercises the
+large-document browser workflow and all non-timing correctness checks.

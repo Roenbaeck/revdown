@@ -131,8 +131,13 @@ export class BrowserNativeService implements NativeService {
     return Promise.resolve({ saved: true });
   }
 
-  pollSource(sessionId: string): Promise<SourceRevision> {
-    return Promise.resolve(this.session(sessionId).document.revision);
+  observeSourceChanges(
+    sessionId: string,
+    listener: () => void,
+  ): Promise<() => void> {
+    this.session(sessionId);
+    void listener;
+    return Promise.resolve(() => undefined);
   }
 
   reloadSource(sessionId: string): Promise<OpenedDocument> {

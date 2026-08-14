@@ -4,6 +4,11 @@ Publishing a GitHub release triggers `.github/workflows/release.yml`. It runs
 the quality checks, builds a universal macOS DMG and a Windows x64 NSIS
 installer, and attaches both to that release.
 
+Before packaging on each platform, the release job runs frontend lint,
+typecheck, and correctness tests plus `cargo fmt --check`, warning-denying
+Clippy, and Rust tests. Wall-clock performance budgets remain local checks as
+documented in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 The workflow works before paid signing credentials are configured:
 
 - macOS artifacts receive an ad-hoc signature. This satisfies Apple Silicon's

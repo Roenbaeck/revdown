@@ -524,14 +524,18 @@ Sidecar saves use an atomic replace strategy:
    platform.
 5. Clean up abandoned temporary files when possible.
 
-Before saving, Revdown compares the sidecar's current file metadata or content
-hash with the version originally loaded. If another process changed it, Revdown
-does not overwrite it. The user is offered reload or explicit conflict
-resolution.
+Before saving, Revdown compares the sidecar's current content hash with the
+version originally loaded, prepares and flushes the replacement candidate, and
+checks the hash again immediately before atomic replacement. If another process
+changed it, Revdown does not overwrite it. The user is offered reload or
+explicit conflict resolution.
 
 Source file changes trigger a debounced reload prompt. Unsaved comment text is
 kept in memory while the source is reparsed. Revdown never writes a watched
-source file.
+source file. The native boundary uses the cross-platform `notify` crate to watch
+only the source's parent directory, filters events to the active source path,
+and sends no path or document content through the event payload. This avoids
+idle whole-file polling while still detecting atomic replacements.
 
 ## 16. Security and Privacy
 
@@ -567,7 +571,9 @@ slice exists. Initial release targets are:
 - Shiki languages and themes are loaded lazily and cached.
 
 Large-document fixtures and timing instrumentation will be checked in. If the
-targets are missed, profiling precedes architectural changes.
+targets are missed, profiling precedes architectural changes. Wall-clock
+budgets are reference-machine checks run locally; shared CI runners validate
+the corresponding behavior without using elapsed time as a release gate.
 
 ## 18. Delivery Milestones
 

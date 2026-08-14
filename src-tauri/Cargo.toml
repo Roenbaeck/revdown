@@ -18,6 +18,7 @@ tauri-build = { version = "2.4.1", features = [] }
 [dependencies]
 base64 = "0.22.1"
 hex = "0.4.3"
+notify = "8.2.0"
 open = "5.3.2"
 rfd = "0.15.4"
 serde = { version = "1.0.219", features = ["derive"] }

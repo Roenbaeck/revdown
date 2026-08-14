@@ -1,17 +1,18 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::OsString,
     fs::{self, File, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     path::{Component, Path, PathBuf},
     sync::Mutex,
     time::UNIX_EPOCH,
 };
-use tauri::State;
+use tauri::{Emitter, State};
 use url::Url;
 use uuid::Uuid;
 
@@ -23,8 +24,12 @@ struct Session {
 #[derive(Default)]
 pub struct AppState {
     sessions: Mutex<HashMap<String, Session>>,
-    pending_document: Mutex<Option<PathBuf>>,
+    pending_documents: Mutex<VecDeque<PathBuf>>,
+    source_watchers: Mutex<HashMap<String, RecommendedWatcher>>,
 }
+
+const MAX_PENDING_DOCUMENTS: usize = 32;
+const SOURCE_CHANGED_EVENT: &str = "revdown-source-changed";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,19 +90,27 @@ pub struct ExportResult {
     saved: bool,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceChangedEvent {
+    session_id: String,
+}
+
 fn hash_bytes(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
 fn read_source(path: &Path) -> CommandResult<(String, SourceRevision)> {
-    let bytes = fs::read(path).map_err(CommandError::io)?;
+    let mut file = File::open(path).map_err(CommandError::io)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(CommandError::io)?;
+    let metadata = file.metadata().map_err(CommandError::io)?;
     let content = String::from_utf8(bytes.clone()).map_err(|_| {
         CommandError::new(
             "invalid_utf8",
             "Revdown can open only valid UTF-8 Markdown files.",
         )
     })?;
-    let metadata = fs::metadata(path).map_err(CommandError::io)?;
     let modified_ms = metadata
         .modified()
         .ok()
@@ -148,19 +161,22 @@ pub fn queue_associated_document(state: &AppState, source_path: PathBuf) -> bool
     if !is_markdown_path(&source_path) || !source_path.is_file() {
         return false;
     }
-    let Ok(mut pending) = state.pending_document.lock() else {
+    let Ok(mut pending) = state.pending_documents.lock() else {
         return false;
     };
-    *pending = Some(source_path);
+    if pending.len() >= MAX_PENDING_DOCUMENTS {
+        return false;
+    }
+    pending.push_back(source_path);
     true
 }
 
 fn take_pending_document_from_state(state: &AppState) -> CommandResult<Option<OpenedDocument>> {
     let source_path = state
-        .pending_document
+        .pending_documents
         .lock()
         .map_err(|_| CommandError::new("state_error", "The open request is unavailable."))?
-        .take();
+        .pop_front();
     source_path
         .map(|path| open_source_path(state, path))
         .transpose()
@@ -205,6 +221,17 @@ fn current_revision(path: &Path) -> CommandResult<Option<String>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(CommandError::io(error)),
     }
+}
+
+fn require_revision(path: &Path, expected_revision: Option<&str>) -> CommandResult<()> {
+    let current = current_revision(path)?;
+    if current.as_deref() != expected_revision {
+        return Err(CommandError::new(
+            "sidecar_conflict",
+            "The sidecar changed outside Revdown. Reload it before saving again.",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_sidecar(contents: &str, expected_filename: &str) -> CommandResult<()> {
@@ -261,7 +288,11 @@ fn replace_file(temp_path: &Path, destination: &Path) -> std::io::Result<()> {
     }
 }
 
-fn atomic_write(destination: &Path, contents: &[u8]) -> CommandResult<()> {
+fn atomic_write_checked(
+    destination: &Path,
+    contents: &[u8],
+    check: impl FnOnce() -> CommandResult<()>,
+) -> CommandResult<()> {
     let directory = destination.parent().ok_or_else(|| {
         CommandError::new(
             "invalid_destination",
@@ -273,7 +304,7 @@ fn atomic_write(destination: &Path, contents: &[u8]) -> CommandResult<()> {
         .and_then(|name| name.to_str())
         .unwrap_or("revdown");
     let temp_path = directory.join(format!(".{filename}.{}.tmp", Uuid::new_v4()));
-    let operation = (|| -> std::io::Result<()> {
+    let prepare = (|| -> std::io::Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -281,15 +312,104 @@ fn atomic_write(destination: &Path, contents: &[u8]) -> CommandResult<()> {
         file.write_all(contents)?;
         file.sync_all()?;
         drop(file);
+        Ok(())
+    })();
+    if let Err(error) = prepare {
+        let _ = fs::remove_file(&temp_path);
+        return Err(CommandError::io(error));
+    }
+    if let Err(error) = check() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    let replace = (|| -> std::io::Result<()> {
         replace_file(&temp_path, destination)?;
         #[cfg(unix)]
         File::open(directory)?.sync_all()?;
         Ok(())
     })();
-    if operation.is_err() {
+    if replace.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
-    operation.map_err(CommandError::io)
+    replace.map_err(CommandError::io)
+}
+
+fn atomic_write(destination: &Path, contents: &[u8]) -> CommandResult<()> {
+    atomic_write_checked(destination, contents, || Ok(()))
+}
+
+fn resolved_destination(path: &Path) -> CommandResult<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(CommandError::io)?
+            .join(path)
+    };
+    match absolute.canonicalize() {
+        Ok(resolved) => Ok(resolved),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let parent = absolute.parent().ok_or_else(|| {
+                CommandError::new(
+                    "invalid_destination",
+                    "The destination has no parent directory.",
+                )
+            })?;
+            let filename = absolute.file_name().ok_or_else(|| {
+                CommandError::new("invalid_destination", "The destination has no filename.")
+            })?;
+            Ok(parent
+                .canonicalize()
+                .map_err(CommandError::io)?
+                .join(filename))
+        }
+        Err(error) => Err(CommandError::io(error)),
+    }
+}
+
+#[cfg(windows)]
+fn same_destination(left: &Path, right: &Path) -> bool {
+    left.to_string_lossy()
+        .eq_ignore_ascii_case(&right.to_string_lossy())
+}
+
+fn watch_event_matches_source(event_path: &Path, source_path: &Path) -> bool {
+    let Ok(event_path) = resolved_destination(event_path) else {
+        return false;
+    };
+    let Ok(source_path) = resolved_destination(source_path) else {
+        return false;
+    };
+    same_destination(&event_path, &source_path)
+}
+
+#[cfg(not(windows))]
+fn same_destination(left: &Path, right: &Path) -> bool {
+    left == right
+}
+
+fn validate_export_destination(source_path: &Path, destination: &Path) -> CommandResult<()> {
+    let resolved_export = resolved_destination(destination)?;
+    let protected = [source_path.to_path_buf(), sidecar_path(source_path)?];
+    for path in protected {
+        let resolved_protected = resolved_destination(&path)?;
+        if same_destination(&resolved_export, &resolved_protected) {
+            return Err(CommandError::new(
+                "protected_export_destination",
+                "A review cannot replace the opened source or its canonical sidecar.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn export_review_file(
+    source_path: &Path,
+    destination: &Path,
+    contents: &[u8],
+) -> CommandResult<()> {
+    validate_export_destination(source_path, destination)?;
+    atomic_write(destination, contents)
 }
 
 fn save_sidecar_file(
@@ -297,17 +417,23 @@ fn save_sidecar_file(
     contents: &str,
     expected_revision: Option<&str>,
 ) -> CommandResult<SaveResult> {
+    save_sidecar_file_with_hook(source_path, contents, expected_revision, || {})
+}
+
+fn save_sidecar_file_with_hook(
+    source_path: &Path,
+    contents: &str,
+    expected_revision: Option<&str>,
+    before_revision_check: impl FnOnce(),
+) -> CommandResult<SaveResult> {
     let filename = source_filename(source_path)?;
     validate_sidecar(contents, &filename)?;
     let path = sidecar_path(source_path)?;
-    let current = current_revision(&path)?;
-    if current.as_deref() != expected_revision {
-        return Err(CommandError::new(
-            "sidecar_conflict",
-            "The sidecar changed outside Revdown. Reload it before saving again.",
-        ));
-    }
-    atomic_write(&path, contents.as_bytes())?;
+    require_revision(&path, expected_revision)?;
+    atomic_write_checked(&path, contents.as_bytes(), || {
+        before_revision_check();
+        require_revision(&path, expected_revision)
+    })?;
     Ok(SaveResult {
         revision: hash_bytes(contents.as_bytes()),
     })
@@ -428,17 +554,79 @@ pub fn export_review(
     let Some(destination) = selected else {
         return Ok(ExportResult { saved: false });
     };
-    atomic_write(&destination, contents.as_bytes())?;
+    export_review_file(&session.source_path, &destination, contents.as_bytes())?;
     Ok(ExportResult { saved: true })
 }
 
 #[tauri::command]
-pub fn poll_source(
+pub fn watch_source(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     session_id: String,
-) -> CommandResult<SourceRevision> {
+) -> CommandResult<()> {
     let session = session_for(&state, &session_id)?;
-    read_source(&session.source_path).map(|(_, revision)| revision)
+    let source_path = session.source_path;
+    let directory = source_path
+        .parent()
+        .ok_or_else(|| {
+            CommandError::new(
+                "watch_failed",
+                "The source document has no directory to watch.",
+            )
+        })?
+        .to_path_buf();
+    let event_session_id = session_id.clone();
+    let mut watcher =
+        notify::recommended_watcher(move |result: Result<notify::Event, notify::Error>| {
+            let Ok(event) = result else {
+                return;
+            };
+            if matches!(event.kind, EventKind::Access(_)) {
+                return;
+            }
+            if event
+                .paths
+                .iter()
+                .any(|path| watch_event_matches_source(path, &source_path))
+            {
+                let _ = app.emit(
+                    SOURCE_CHANGED_EVENT,
+                    SourceChangedEvent {
+                        session_id: event_session_id.clone(),
+                    },
+                );
+            }
+        })
+        .map_err(|_| {
+            CommandError::new(
+                "watch_failed",
+                "Revdown could not watch the source document for changes.",
+            )
+        })?;
+    watcher
+        .watch(&directory, RecursiveMode::NonRecursive)
+        .map_err(|_| {
+            CommandError::new(
+                "watch_failed",
+                "Revdown could not watch the source document for changes.",
+            )
+        })?;
+    state
+        .source_watchers
+        .lock()
+        .map_err(|_| CommandError::new("state_error", "The source watcher is unavailable."))?
+        .insert(session_id, watcher);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn unwatch_source(state: State<'_, AppState>, session_id: String) -> CommandResult<()> {
+    state
+        .source_watchers
+        .lock()
+        .map_err(|_| CommandError::new("state_error", "The source watcher is unavailable."))?
+        .remove(&session_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -549,6 +737,34 @@ mod tests {
     }
 
     #[test]
+    fn associated_documents_are_opened_in_fifo_order() {
+        let directory = tempdir().unwrap();
+        let first_path = directory.path().join("first.md");
+        let second_path = directory.path().join("second.md");
+        fs::write(&first_path, b"first").unwrap();
+        fs::write(&second_path, b"second").unwrap();
+        let state = AppState::default();
+
+        assert!(queue_associated_document(&state, first_path));
+        assert!(queue_associated_document(&state, second_path));
+        assert_eq!(
+            take_pending_document_from_state(&state)
+                .unwrap()
+                .unwrap()
+                .filename,
+            "first.md"
+        );
+        assert_eq!(
+            take_pending_document_from_state(&state)
+                .unwrap()
+                .unwrap()
+                .filename,
+            "second.md"
+        );
+        assert!(take_pending_document_from_state(&state).unwrap().is_none());
+    }
+
+    #[test]
     fn saving_a_sidecar_never_changes_source_bytes() {
         let directory = tempdir().unwrap();
         let source_path = directory.path().join("document.md");
@@ -560,6 +776,83 @@ mod tests {
             current_revision(&sidecar_path(&source_path).unwrap()).unwrap(),
             Some(result.revision)
         );
+    }
+
+    #[test]
+    fn exports_cannot_replace_the_source_or_sidecar() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        let sidecar_path = sidecar_path(&source_path).unwrap();
+        let source = b"# Source\n\nNever modify me.\n";
+        let canonical = sidecar("document.md", "canonical");
+        fs::write(&source_path, source).unwrap();
+        fs::write(&sidecar_path, &canonical).unwrap();
+
+        for destination in [source_path.clone(), sidecar_path.clone()] {
+            let error = export_review_file(&source_path, &destination, b"review").unwrap_err();
+            assert_eq!(error.code, "protected_export_destination");
+        }
+        assert_eq!(fs::read(&source_path).unwrap(), source);
+        assert_eq!(fs::read_to_string(sidecar_path).unwrap(), canonical);
+    }
+
+    #[test]
+    fn exports_reject_normalized_source_paths_and_allow_safe_destinations() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        let normalized_alias = directory.path().join(".").join("document.md");
+        let export_path = directory.path().join("document.md.rd.md");
+        let source = b"source";
+        fs::write(&source_path, source).unwrap();
+
+        assert_eq!(
+            export_review_file(&source_path, &normalized_alias, b"review")
+                .unwrap_err()
+                .code,
+            "protected_export_destination"
+        );
+        export_review_file(&source_path, &export_path, b"review").unwrap();
+        assert_eq!(fs::read(&source_path).unwrap(), source);
+        assert_eq!(fs::read(export_path).unwrap(), b"review");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exports_reject_symlink_aliases_of_the_source() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        let alias_path = directory.path().join("alias.md");
+        let source = b"source";
+        fs::write(&source_path, source).unwrap();
+        symlink(&source_path, &alias_path).unwrap();
+
+        assert_eq!(
+            export_review_file(&source_path, &alias_path, b"review")
+                .unwrap_err()
+                .code,
+            "protected_export_destination"
+        );
+        assert_eq!(fs::read(&source_path).unwrap(), source);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn exports_reject_case_variants_of_the_source() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("Document.MD");
+        let case_variant = directory.path().join("document.md");
+        let source = b"source";
+        fs::write(&source_path, source).unwrap();
+
+        assert_eq!(
+            export_review_file(&source_path, &case_variant, b"review")
+                .unwrap_err()
+                .code,
+            "protected_export_destination"
+        );
+        assert_eq!(fs::read(&source_path).unwrap(), source);
     }
 
     #[test]
@@ -583,6 +876,27 @@ mod tests {
         assert!(fs::read_to_string(sidecar_path(&source_path).unwrap())
             .unwrap()
             .contains("external"));
+    }
+
+    #[test]
+    fn an_external_change_while_a_save_candidate_is_prepared_is_retained() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        let sidecar_path = sidecar_path(&source_path).unwrap();
+        fs::write(&source_path, b"source").unwrap();
+        let first = save_sidecar_file(&source_path, &sidecar("document.md", "one"), None).unwrap();
+        let external = sidecar("document.md", "external-during-save");
+
+        let error = save_sidecar_file_with_hook(
+            &source_path,
+            &sidecar("document.md", "two"),
+            Some(&first.revision),
+            || fs::write(&sidecar_path, &external).unwrap(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "sidecar_conflict");
+        assert_eq!(fs::read_to_string(sidecar_path).unwrap(), external);
     }
 
     #[test]
@@ -616,6 +930,22 @@ mod tests {
                 .code,
             "unsafe_path"
         );
+    }
+
+    #[test]
+    fn source_watch_events_are_scoped_to_the_opened_file() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        let sibling_path = directory.path().join("sibling.md");
+        fs::write(&source_path, b"source").unwrap();
+        fs::write(&sibling_path, b"sibling").unwrap();
+
+        assert!(watch_event_matches_source(&source_path, &source_path));
+        assert!(watch_event_matches_source(
+            &directory.path().join(".").join("document.md"),
+            &source_path
+        ));
+        assert!(!watch_event_matches_source(&sibling_path, &source_path));
     }
 
     #[test]

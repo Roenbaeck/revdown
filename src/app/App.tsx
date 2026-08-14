@@ -55,7 +55,13 @@ import {
   type NativeService,
   type OpenedDocument,
 } from "../services/native";
-import { appReducer, initialState, type CommentFilter } from "./state";
+import {
+  appReducer,
+  initialState,
+  reviewMutationsAllowed,
+  type CommentFilter,
+} from "./state";
+import { SidecarSaveCoordinator } from "./saveQueue";
 
 type PendingSelection = {
   mapped: MappedSelection;
@@ -71,6 +77,8 @@ function describeError(error: unknown): string {
 
 export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
+  const mutationsAllowed = reviewMutationsAllowed(state);
+  const activeSessionId = state.document?.sessionId;
   const [native, setNative] = useState<NativeService | null>(null);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
@@ -85,9 +93,7 @@ export function App() {
   );
   const [windowFullscreen, setWindowFullscreen] = useState(false);
   const documentRegionRef = useRef<HTMLElement>(null);
-  const sidecarRevisionRef = useRef<string | null>(null);
-  const sidecarRef = useRef<SidecarV1 | null>(null);
-  const saveQueueRef = useRef(Promise.resolve());
+  const saveCoordinatorRef = useRef(new SidecarSaveCoordinator());
   const closeAppearance = useCallback(() => setAppearanceOpen(false), []);
   const toggleWindowFullscreen = useCallback(() => {
     if (!native) return;
@@ -152,11 +158,6 @@ export function App() {
         .catch(() => undefined);
     }
   }, [native, readerSettings, systemDark]);
-  useEffect(() => {
-    sidecarRevisionRef.current = state.sidecarRevision;
-    sidecarRef.current = state.sidecar;
-  }, [state.sidecar, state.sidecarRevision]);
-
   const loadOpenedDocument = useCallback(
     async (
       opened: OpenedDocument,
@@ -211,6 +212,10 @@ export function App() {
             model,
           )
         : new Map();
+      saveCoordinatorRef.current.setRevision(
+        opened.sessionId,
+        sidecarRevision ?? null,
+      );
       dispatch({
         type: "loaded",
         document: opened,
@@ -233,12 +238,13 @@ export function App() {
     const consumeOpenRequest = () => {
       openQueue = openQueue
         .then(async () => {
-          if (cancelled) return;
-          const opened = await native.takePendingDocument();
-          if (!opened || cancelled) return;
-          dispatch({ type: "loading" });
-          await loadOpenedDocument(opened);
-          setPendingSelection(null);
+          while (!cancelled) {
+            const opened = await native.takePendingDocument();
+            if (!opened || cancelled) return;
+            dispatch({ type: "loading" });
+            await loadOpenedDocument(opened);
+            setPendingSelection(null);
+          }
         })
         .catch((error: unknown) => {
           if (!cancelled)
@@ -288,7 +294,8 @@ export function App() {
 
   const persistSidecar = useCallback(
     (candidate: SidecarV1) => {
-      if (!native || !state.document || !state.model) return;
+      if (!native || !state.document || !state.model || !mutationsAllowed)
+        return;
       const currentDocument = state.document;
       const currentModel = state.model;
       const sidecar = sidecarV1Schema.parse({
@@ -300,44 +307,50 @@ export function App() {
             currentModel.fingerprint.normalizedSha256,
         },
       });
-      sidecarRef.current = sidecar;
       dispatch({
         type: "local_sidecar",
+        sessionId: currentDocument.sessionId,
         sidecar,
         matches: matchAllAnchors(
           sidecar.comments.map(({ id, anchor }) => ({ id, anchor })),
           currentModel,
         ),
       });
-      saveQueueRef.current = saveQueueRef.current.then(async () => {
-        dispatch({ type: "save_started" });
-        try {
-          const result = await native.saveSidecar(
-            currentDocument.sessionId,
-            serializeSidecar(sidecar),
-            sidecarRevisionRef.current,
-          );
-          sidecarRevisionRef.current = result.revision;
-          dispatch({ type: "save_succeeded", revision: result.revision });
-        } catch (error) {
+      void saveCoordinatorRef.current.enqueue({
+        sessionId: currentDocument.sessionId,
+        contents: serializeSidecar(sidecar),
+        initialRevision: state.sidecarRevision,
+        save: (sessionId, contents, expectedRevision) =>
+          native.saveSidecar(sessionId, contents, expectedRevision),
+        onStarted: (sessionId) => dispatch({ type: "save_started", sessionId }),
+        onSucceeded: (sessionId, revision) =>
+          dispatch({ type: "save_succeeded", sessionId, revision }),
+        onFailed: (sessionId, error) => {
           const conflict =
             error instanceof NativeServiceError &&
             error.code === "sidecar_conflict";
           dispatch({
             type: "save_failed",
+            sessionId,
             status: conflict ? "conflict" : "error",
             message: conflict
               ? "The sidecar changed outside Revdown. Reload it or explicitly overwrite the external version."
               : describeError(error),
           });
-        }
+        },
       });
     },
-    [native, state.document, state.model],
+    [
+      mutationsAllowed,
+      native,
+      state.document,
+      state.model,
+      state.sidecarRevision,
+    ],
   );
 
   const captureSelection = useCallback(() => {
-    if (!state.model || state.sidecarIssue) return;
+    if (!state.model || !mutationsAllowed) return;
     const surface = window.document.getElementById("document-surface");
     if (!(surface instanceof HTMLElement)) return;
     const result = mapDomSelection(window.getSelection(), surface, state.model);
@@ -362,7 +375,7 @@ export function App() {
       invalidated: false,
     });
     dispatch({ type: "set_message", message: null });
-  }, [state.model, state.sidecarIssue]);
+  }, [mutationsAllowed, state.model]);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
@@ -380,24 +393,36 @@ export function App() {
   }, [captureSelection]);
 
   useEffect(() => {
-    if (!native || !state.document || state.phase !== "ready") return;
+    if (!native || !activeSessionId || state.phase !== "ready") return;
     let active = true;
-    const check = async () => {
-      try {
-        const revision = await native.pollSource(state.document!.sessionId);
-        if (active && revision.sha256 !== state.document!.revision.sha256) {
+    let unsubscribe: (() => void) | undefined;
+    let debounce: number | undefined;
+    const sessionId = activeSessionId;
+    void native
+      .observeSourceChanges(sessionId, () => {
+        if (debounce !== undefined) window.clearTimeout(debounce);
+        debounce = window.setTimeout(() => {
+          if (!active) return;
           dispatch({ type: "source_changed", value: true });
-        }
-      } catch {
-        // A transient polling failure is surfaced only if a user-initiated reload also fails.
-      }
-    };
-    const interval = window.setInterval(() => void check(), 2_000);
+          setPendingSelection((pending) =>
+            pending ? { ...pending, invalidated: true } : null,
+          );
+        }, 200);
+      })
+      .then((stop) => {
+        if (active) unsubscribe = stop;
+        else stop();
+      })
+      .catch((error: unknown) => {
+        if (active)
+          dispatch({ type: "set_message", message: describeError(error) });
+      });
     return () => {
       active = false;
-      window.clearInterval(interval);
+      if (debounce !== undefined) window.clearTimeout(debounce);
+      unsubscribe?.();
     };
-  }, [native, state.document, state.phase]);
+  }, [activeSessionId, native, state.phase]);
 
   const reloadSource = useCallback(async () => {
     if (!native || !state.document) return;
@@ -443,28 +468,42 @@ export function App() {
   }, [loadOpenedDocument, native, state.document]);
 
   const overwriteConflict = useCallback(async () => {
-    if (!native || !state.document || !sidecarRef.current) return;
+    if (!native || !state.document || !state.sidecar || !mutationsAllowed)
+      return;
+    const sessionId = state.document.sessionId;
     try {
-      const external = await native.loadSidecar(state.document.sessionId);
-      sidecarRevisionRef.current = external.revision;
+      const external = await native.loadSidecar(sessionId);
+      saveCoordinatorRef.current.setRevision(sessionId, external.revision);
       const result = await native.saveSidecar(
-        state.document.sessionId,
-        serializeSidecar(sidecarRef.current),
+        sessionId,
+        serializeSidecar(state.sidecar),
         external.revision,
       );
-      sidecarRevisionRef.current = result.revision;
-      dispatch({ type: "save_succeeded", revision: result.revision });
+      saveCoordinatorRef.current.setRevision(sessionId, result.revision);
+      dispatch({
+        type: "save_succeeded",
+        sessionId,
+        revision: result.revision,
+      });
     } catch (error) {
       dispatch({
         type: "save_failed",
+        sessionId,
         status: "error",
         message: describeError(error),
       });
     }
-  }, [native, state.document]);
+  }, [mutationsAllowed, native, state.document, state.sidecar]);
 
   const saveNewComment = (body: string) => {
-    if (!state.sidecar || !state.model || !pendingSelection) return;
+    if (
+      !state.sidecar ||
+      !state.model ||
+      !pendingSelection ||
+      pendingSelection.invalidated ||
+      !mutationsAllowed
+    )
+      return;
     const anchor = createAnchor(state.model, pendingSelection.mapped);
     persistSidecar(
       addComment(state.sidecar, createReviewComment({ body, anchor })),
@@ -474,7 +513,7 @@ export function App() {
   };
 
   const mutateComment = (mutation: (sidecar: SidecarV1) => SidecarV1) => {
-    if (state.sidecar && !state.sidecarIssue)
+    if (state.sidecar && mutationsAllowed)
       persistSidecar(mutation(state.sidecar));
   };
 
@@ -535,7 +574,7 @@ export function App() {
         panelOpen={state.panelOpen}
         includeResolved={state.includeResolvedExport}
         saveStatus={state.saveStatus}
-        canComment={Boolean(ready && state.sidecar && !state.sidecarIssue)}
+        canComment={Boolean(ready && state.sidecar && mutationsAllowed)}
         canExport={Boolean(ready && state.sidecar)}
         canNavigate={Boolean(ready)}
         outlineOpen={outlineOpen}
@@ -589,7 +628,11 @@ export function App() {
               <button type="button" onClick={() => void reloadSidecar()}>
                 Reload sidecar
               </button>
-              <button type="button" onClick={() => void overwriteConflict()}>
+              <button
+                type="button"
+                disabled={!mutationsAllowed}
+                onClick={() => void overwriteConflict()}
+              >
                 Overwrite external version
               </button>
             </>
@@ -677,7 +720,12 @@ export function App() {
             matches={state.matches}
             filter={state.filter}
             selectedId={state.selectedCommentId}
-            readOnly={Boolean(state.sidecarIssue)}
+            readOnly={!mutationsAllowed}
+            readOnlyMessage={
+              state.sourceChanged
+                ? "Comments are read-only until the changed source is reloaded."
+                : "This sidecar is read-only until its validation issue is resolved."
+            }
             onSelect={(id) => dispatch({ type: "select_comment", id })}
             onEdit={(id, body) =>
               mutateComment((sidecar) => updateComment(sidecar, id, { body }))

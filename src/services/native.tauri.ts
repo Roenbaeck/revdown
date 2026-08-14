@@ -6,12 +6,12 @@ import type {
   NativeService,
   OpenedDocument,
   SaveResult,
-  SourceRevision,
   WindowAppearance,
 } from "./native";
 import { NativeServiceError } from "./native";
 
 type NativeErrorShape = { code?: unknown; message?: unknown };
+type SourceChangedEvent = { sessionId: string };
 
 function normalizeNativeError(error: unknown): never {
   if (typeof error === "object" && error !== null) {
@@ -72,8 +72,26 @@ export class TauriNativeService implements NativeService {
     return command("export_review", { sessionId, defaultFilename, contents });
   }
 
-  pollSource(sessionId: string): Promise<SourceRevision> {
-    return command("poll_source", { sessionId });
+  async observeSourceChanges(
+    sessionId: string,
+    listener: () => void,
+  ): Promise<() => void> {
+    const unlisten = await getCurrentWindow().listen<SourceChangedEvent>(
+      "revdown-source-changed",
+      ({ payload }) => {
+        if (payload.sessionId === sessionId) listener();
+      },
+    );
+    try {
+      await command("watch_source", { sessionId });
+    } catch (error) {
+      unlisten();
+      throw error;
+    }
+    return () => {
+      unlisten();
+      void command("unwatch_source", { sessionId }).catch(() => undefined);
+    };
   }
 
   reloadSource(sessionId: string): Promise<OpenedDocument> {

@@ -5,6 +5,7 @@ export type AnchorState = "exact" | "relocated" | "ambiguous" | "unmatched";
 
 export type AnchorCandidate = {
   sourceRange: { start: number; end: number };
+  renderedRange?: { start: number; end: number };
   blockId: string;
   score: number;
   evidence: string[];
@@ -59,7 +60,7 @@ function sameHeading(a: readonly string[], b: readonly string[]): boolean {
 }
 
 function contextScore(
-  source: string,
+  renderedText: string,
   start: number,
   end: number,
   anchor: Anchor,
@@ -69,12 +70,88 @@ function contextScore(
   const suffix = anchor.textQuote.suffix.slice(0, 24);
   if (
     prefix &&
-    source.slice(Math.max(0, start - prefix.length), start).endsWith(prefix)
+    renderedText
+      .slice(Math.max(0, start - prefix.length), start)
+      .endsWith(prefix)
   )
     score += 0.07;
-  if (suffix && source.slice(end, end + suffix.length).startsWith(suffix))
+  if (suffix && renderedText.slice(end, end + suffix.length).startsWith(suffix))
     score += 0.07;
   return score;
+}
+
+function sourceRangeToRenderedRange(
+  block: SourceBlock,
+  start: number,
+  end: number,
+): { start: number; end: number } | undefined {
+  let renderedStart = Number.POSITIVE_INFINITY;
+  let renderedEnd = Number.NEGATIVE_INFINITY;
+  for (const span of block.renderedSpans) {
+    const firstBoundary = span.sourceMap[0];
+    const lastBoundary = span.sourceMap.at(-1);
+    if (
+      firstBoundary === undefined ||
+      lastBoundary === undefined ||
+      firstBoundary >= end ||
+      lastBoundary <= start
+    )
+      continue;
+
+    let low = 0;
+    let high = span.sourceMap.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if ((span.sourceMap[middle] ?? Number.POSITIVE_INFINITY) <= start)
+        low = middle + 1;
+      else high = middle;
+    }
+    const startIndex = Math.max(0, low - 1);
+
+    low = 0;
+    high = span.sourceMap.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if ((span.sourceMap[middle] ?? Number.POSITIVE_INFINITY) < end)
+        low = middle + 1;
+      else high = middle;
+    }
+    const endIndex = Math.min(span.sourceMap.length - 1, low);
+    if (endIndex <= startIndex) continue;
+    renderedStart = Math.min(renderedStart, span.renderedStart + startIndex);
+    renderedEnd = Math.max(renderedEnd, span.renderedStart + endIndex);
+  }
+  return Number.isFinite(renderedStart) && Number.isFinite(renderedEnd)
+    ? { start: renderedStart, end: renderedEnd }
+    : undefined;
+}
+
+function renderedRangeToSourceRange(
+  block: SourceBlock,
+  start: number,
+  end: number,
+): { start: number; end: number } | undefined {
+  const first = block.renderedSpans.find(
+    (span) => start >= span.renderedStart && start < span.renderedEnd,
+  );
+  const last = block.renderedSpans.find(
+    (span) => end > span.renderedStart && end <= span.renderedEnd,
+  );
+  if (!first || !last) return undefined;
+  const mappedStart = first.sourceMap[start - first.renderedStart];
+  const mappedEnd = last.sourceMap[end - last.renderedStart];
+  if (mappedStart === undefined || mappedEnd === undefined) return undefined;
+  let sourceStart = mappedStart;
+  let sourceEnd = mappedEnd;
+  for (const inline of block.renderedInlineRanges) {
+    if (inline.renderedStart >= start && inline.renderedEnd <= end) {
+      sourceStart = Math.min(sourceStart, inline.sourceStart);
+      sourceEnd = Math.max(sourceEnd, inline.sourceEnd);
+    }
+  }
+  return sourceEnd > sourceStart
+    ? { start: sourceStart, end: sourceEnd }
+    : undefined;
 }
 
 function scoreExactCandidate(
@@ -86,9 +163,12 @@ function scoreExactCandidate(
 ): AnchorCandidate | undefined {
   const block = blockForRange(model, start, end);
   if (!block) return undefined;
+  const renderedRange = sourceRangeToRenderedRange(block, start, end);
+  if (!renderedRange) return undefined;
   if (globallyUnique) {
     return {
       sourceRange: { start, end },
+      renderedRange,
       blockId: block.id,
       score: 0.96,
       evidence: ["unique exact source text"],
@@ -109,15 +189,60 @@ function scoreExactCandidate(
     score += 0.08;
     evidence.push("inside original block range");
   }
-  const context = contextScore(model.source, start, end, anchor);
+  const context = contextScore(
+    block.renderedText,
+    renderedRange.start,
+    renderedRange.end,
+    anchor,
+  );
   if (context > 0) evidence.push("matching quote context");
   score += context;
   return {
     sourceRange: { start, end },
+    renderedRange,
     blockId: block.id,
     score: Math.min(score, 0.99),
     evidence,
   };
+}
+
+function renderedCandidates(
+  model: MarkdownDocumentModel,
+  anchor: Anchor,
+): AnchorCandidate[] {
+  const occurrences = model.blocksInSourceOrder.flatMap((block) =>
+    allOccurrences(block.renderedText, anchor.textQuote.exact).map((start) => ({
+      block,
+      start,
+      end: start + anchor.textQuote.exact.length,
+    })),
+  );
+  return occurrences.flatMap(({ block, start, end }) => {
+    const sourceRange = renderedRangeToSourceRange(block, start, end);
+    if (!sourceRange) return [];
+    let score = occurrences.length === 1 ? 0.9 : 0.54;
+    const evidence = ["exact rendered quote"];
+    if (block.sourceSha256 === anchor.block.sourceSha256) {
+      score += 0.18;
+      evidence.push("same block fingerprint");
+    }
+    if (sameHeading(block.headingPath, anchor.headingPath)) {
+      score += 0.12;
+      evidence.push("same heading path");
+    }
+    const context = contextScore(block.renderedText, start, end, anchor);
+    if (context > 0) evidence.push("matching rendered context");
+    score += context;
+    return [
+      {
+        sourceRange,
+        renderedRange: { start, end },
+        blockId: block.id,
+        score: Math.min(score, 0.94),
+        evidence,
+      },
+    ];
+  });
 }
 
 function normalizeForComparison(value: string): string {
@@ -165,6 +290,12 @@ function fuzzyCandidates(
         if (start === undefined || !last?.[0] || last.index === undefined)
           continue;
         const end = last.index + last[0].length;
+        const renderedRange = sourceRangeToRenderedRange(
+          block,
+          block.start + start,
+          block.start + end,
+        );
+        if (!renderedRange) continue;
         const similarity = levenshteinSimilarity(
           target,
           normalizeForComparison(raw.slice(start, end)),
@@ -172,6 +303,7 @@ function fuzzyCandidates(
         if (similarity >= 0.9) {
           candidates.push({
             sourceRange: { start: block.start + start, end: block.start + end },
+            renderedRange,
             blockId: block.id,
             score: similarity * 0.96,
             evidence: ["near-exact text in the same heading"],
@@ -215,20 +347,30 @@ export function matchAnchor(
     model.source.slice(start, end) === anchor.sourceText
   ) {
     const block = blockForRange(model, start, end);
-    const candidate = block
-      ? {
-          sourceRange: { start, end },
-          blockId: block.id,
-          score: 1,
-          evidence: ["document fingerprint and stored source range"],
-        }
+    const renderedRange = block
+      ? sourceRangeToRenderedRange(block, start, end)
       : undefined;
-    return {
-      state: "exact",
-      confidence: 1,
-      ...(candidate ? { candidate } : {}),
-      candidates: candidate ? [candidate] : [],
-    };
+    const storedBlockMatches =
+      block?.start === anchor.block.start &&
+      block.end === anchor.block.end &&
+      block.sourceSha256 === anchor.block.sourceSha256;
+    const candidate =
+      block && renderedRange && storedBlockMatches
+        ? {
+            sourceRange: { start, end },
+            renderedRange,
+            blockId: block.id,
+            score: 1,
+            evidence: ["document fingerprint and stored source range"],
+          }
+        : undefined;
+    if (candidate)
+      return {
+        state: "exact",
+        confidence: 1,
+        candidate,
+        candidates: [candidate],
+      };
   }
 
   const sourceOccurrences = allOccurrences(model.source, anchor.sourceText);
@@ -247,30 +389,9 @@ export function matchAnchor(
     );
   if (exactCandidates.length > 0) return classifyCandidates(exactCandidates);
 
-  const renderedOccurrences = allOccurrences(
-    model.source,
-    anchor.textQuote.exact,
-  );
-  const renderedCandidates = renderedOccurrences
-    .map((candidateStart) =>
-      scoreExactCandidate(
-        model,
-        anchor,
-        candidateStart,
-        candidateStart + anchor.textQuote.exact.length,
-        renderedOccurrences.length === 1,
-      ),
-    )
-    .filter(
-      (candidate): candidate is AnchorCandidate => candidate !== undefined,
-    )
-    .map((candidate) => ({
-      ...candidate,
-      score: Math.min(candidate.score, 0.9),
-      evidence: ["exact rendered quote", ...candidate.evidence.slice(1)],
-    }));
-  if (renderedCandidates.length > 0)
-    return classifyCandidates(renderedCandidates);
+  const visibleCandidates = renderedCandidates(model, anchor);
+  if (visibleCandidates.length > 0)
+    return classifyCandidates(visibleCandidates);
 
   return classifyCandidates(fuzzyCandidates(model, anchor));
 }
@@ -295,6 +416,8 @@ export function confirmAnchorMatch(
   const block = model.blocks.get(candidate.blockId);
   if (!block) return anchor;
   const { start, end } = candidate.sourceRange;
+  const renderedRange =
+    candidate.renderedRange ?? sourceRangeToRenderedRange(block, start, end);
   return {
     ...anchor,
     documentSha256: model.fingerprint.sha256,
@@ -303,8 +426,15 @@ export function confirmAnchorMatch(
     sourceText: model.source.slice(start, end),
     textQuote: {
       ...anchor.textQuote,
-      prefix: model.source.slice(Math.max(block.start, start - 40), start),
-      suffix: model.source.slice(end, Math.min(block.end, end + 40)),
+      prefix: renderedRange
+        ? block.renderedText.slice(
+            Math.max(0, renderedRange.start - 40),
+            renderedRange.start,
+          )
+        : "",
+      suffix: renderedRange
+        ? block.renderedText.slice(renderedRange.end, renderedRange.end + 40)
+        : "",
     },
     block: {
       start: block.start,

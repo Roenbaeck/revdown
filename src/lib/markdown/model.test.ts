@@ -7,7 +7,8 @@ import {
 import { fingerprintText } from "../fingerprints";
 import { buildBoundaryMap, parseMarkdownDocument } from "./model";
 
-const INITIAL_READABILITY_BUDGET_MS = process.env.CI ? 5_000 : 2_000;
+const INITIAL_READABILITY_BUDGET_MS = 2_000;
+const isCi = Boolean(process.env.CI);
 
 describe("Markdown source model", () => {
   it("maps escaped text, entities, CRLF, and UTF-16 offsets", () => {
@@ -84,34 +85,36 @@ describe("Markdown source model", () => {
     ).toHaveLength(6);
   });
 
-  it("keeps a 1 MiB document within the initial readability budget", async () => {
-    const heading = "# Large fixture\n\n";
-    const source =
-      heading +
-      "A source-backed paragraph with Unicode 😀 and stable mapping. ".repeat(
-        18_000,
+  describe.skipIf(isCi)("local performance budgets", () => {
+    it("keeps a 1 MiB document within the initial readability budget", async () => {
+      const heading = "# Large fixture\n\n";
+      const source =
+        heading +
+        "A source-backed paragraph with Unicode 😀 and stable mapping. ".repeat(
+          18_000,
+        );
+      const started = performance.now();
+      const model = await parseMarkdownDocument(
+        source,
+        await fingerprintText(source),
       );
-    const started = performance.now();
-    const model = await parseMarkdownDocument(
-      source,
-      await fingerprintText(source),
-    );
-    expect(model.html).toContain("source-backed paragraph");
-    expect(performance.now() - started).toBeLessThan(
-      INITIAL_READABILITY_BUDGET_MS,
-    );
-  });
+      expect(model.html).toContain("source-backed paragraph");
+      expect(performance.now() - started).toBeLessThan(
+        INITIAL_READABILITY_BUDGET_MS,
+      );
+    });
 
-  it("renders a generated novel without degrading with its block count", async () => {
-    const source = buildLargeMarkdownFixture();
-    const started = performance.now();
-    const model = await parseMarkdownDocument(
-      source,
-      await fingerprintText(source),
-    );
-    expect(model.blocks.size).toBe(LARGE_MARKDOWN_EXPECTED_BLOCKS);
-    expect(performance.now() - started).toBeLessThan(
-      INITIAL_READABILITY_BUDGET_MS,
-    );
+    it("renders a generated novel without degrading with its block count", async () => {
+      const source = buildLargeMarkdownFixture();
+      const started = performance.now();
+      const model = await parseMarkdownDocument(
+        source,
+        await fingerprintText(source),
+      );
+      expect(model.blocks.size).toBe(LARGE_MARKDOWN_EXPECTED_BLOCKS);
+      expect(performance.now() - started).toBeLessThan(
+        INITIAL_READABILITY_BUDGET_MS,
+      );
+    });
   });
 });

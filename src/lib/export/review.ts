@@ -11,6 +11,32 @@ function fenced(value: string, language = "text"): string {
   return `${fence}${language}\n${value}\n${fence}`;
 }
 
+function inlineCode(value: string): string {
+  const escapedControls = [...value]
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      if (codePoint > 31 && codePoint !== 127) return character;
+      if (character === "\n") return "\\n";
+      if (character === "\r") return "\\r";
+      if (character === "\t") return "\\t";
+      return `\\u${codePoint.toString(16).padStart(4, "0")}`;
+    })
+    .join("");
+  const runs = [...escapedControls.matchAll(/`+/gu)].map(
+    (match) => match[0].length,
+  );
+  const delimiter = "`".repeat(
+    Math.max(1, ...runs.map((length) => length + 1)),
+  );
+  const needsPadding =
+    escapedControls.startsWith("`") ||
+    escapedControls.endsWith("`") ||
+    escapedControls.startsWith(" ") ||
+    escapedControls.endsWith(" ");
+  const content = needsPadding ? ` ${escapedControls} ` : escapedControls;
+  return `${delimiter}${content}${delimiter}`;
+}
+
 function commentSection(
   comment: ReviewComment,
   match: AnchorMatch | undefined,
@@ -26,7 +52,7 @@ function commentSection(
     "",
     `- Review state: ${comment.status}`,
     `- Anchor state: ${anchorState}`,
-    `- Heading context: ${heading}`,
+    `- Heading context: ${inlineCode(heading)}`,
     `- Original line hint: ${comment.anchor.lineHint.start}–${comment.anchor.lineHint.end}`,
   ];
   if (match?.candidate) {
@@ -78,10 +104,10 @@ export function generateReviewMarkdown(
   const sections = [
     "# Revdown review",
     "",
-    `Target file: \`${sidecar.source.filename}\``,
+    `Target file: ${inlineCode(sidecar.source.filename)}`,
     "",
-    `Observed SHA-256: \`${sidecar.source.lastObservedSha256}\``,
-    `Observed normalized SHA-256: \`${sidecar.source.lastObservedNormalizedSha256}\``,
+    `Observed SHA-256: ${inlineCode(sidecar.source.lastObservedSha256)}`,
+    `Observed normalized SHA-256: ${inlineCode(sidecar.source.lastObservedNormalizedSha256)}`,
     "",
     "## Instructions for applying this review",
     "",

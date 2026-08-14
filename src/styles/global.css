@@ -833,6 +833,8 @@ textarea {
 }
 
 .commentCard {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
   border: 1px solid var(--line);
   border-radius: 11px;
   padding: 0.8rem;

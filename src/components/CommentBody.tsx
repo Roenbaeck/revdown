@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import { fingerprintText } from "../lib/fingerprints";
-import { parseMarkdownDocument } from "../lib/markdown/model";
+import { useEffect, useRef, useState } from "react";
+import { renderCommentMarkdown } from "../lib/markdown/comment";
 
 export function CommentBody({
   body,
@@ -9,21 +8,45 @@ export function CommentBody({
   body: string;
   onOpenExternal: (url: string) => void;
 }) {
-  const [html, setHtml] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(
+    () => typeof window.IntersectionObserver === "undefined",
+  );
+  const [rendered, setRendered] = useState<{
+    body: string;
+    html: string;
+  } | null>(null);
+
   useEffect(() => {
+    if (visible || typeof window.IntersectionObserver === "undefined") return;
+    const element = containerRef.current;
+    if (!element) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
     let active = true;
-    void fingerprintText(body)
-      .then((fingerprint) => parseMarkdownDocument(body, fingerprint))
-      .then((model) => {
-        if (active) setHtml(model.html);
-      });
+    void renderCommentMarkdown(body).then((html) => {
+      if (active) {
+        setRendered({ body, html });
+      }
+    });
     return () => {
       active = false;
     };
-  }, [body]);
-  if (html === null) return <p>{body}</p>;
+  }, [body, visible]);
+  const html = rendered?.body === body ? rendered.html : null;
   return (
     <div
+      ref={containerRef}
       className="commentMarkdown markdownBody"
       onClick={(event) => {
         const link = (event.target as Element).closest<HTMLElement>(
@@ -34,7 +57,9 @@ export function CommentBody({
           onOpenExternal(link.dataset.rdHref);
         }
       }}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+      {...(html ? { dangerouslySetInnerHTML: { __html: html } } : {})}
+    >
+      {html ? null : <p>{body}</p>}
+    </div>
   );
 }

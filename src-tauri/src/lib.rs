@@ -2,9 +2,9 @@ mod commands;
 mod fullscreen;
 
 use commands::{
-    export_review, load_sidecar, open_document, open_external, poll_source,
-    queue_associated_document, read_local_image, reload_source, save_sidecar,
-    take_pending_document, AppState,
+    export_review, load_sidecar, open_document, open_external, queue_associated_document,
+    read_local_image, reload_source, save_sidecar, take_pending_document, unwatch_source,
+    watch_source, AppState,
 };
 use fullscreen::{
     handle_window_event, set_window_fullscreen, window_fullscreen_state, FullscreenState,
@@ -25,7 +25,8 @@ fn focus_and_notify(app: &tauri::AppHandle) {
 fn queue_startup_document(app: &tauri::App) {
     let state = app.state::<AppState>();
     let current_directory = std::env::current_dir().ok();
-    let queued = std::env::args_os().skip(1).any(|argument| {
+    let mut queued = false;
+    for argument in std::env::args_os().skip(1) {
         let path = PathBuf::from(argument);
         let path = if path.is_absolute() {
             path
@@ -34,8 +35,8 @@ fn queue_startup_document(app: &tauri::App) {
         } else {
             path
         };
-        queue_associated_document(&state, path)
-    });
+        queued |= queue_associated_document(&state, path);
+    }
     if queued {
         focus_and_notify(app.handle());
     }
@@ -49,15 +50,16 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, cwd| {
         let state = app.state::<AppState>();
         let current_directory = PathBuf::from(cwd);
-        let queued = arguments.into_iter().skip(1).any(|argument| {
+        let mut queued = false;
+        for argument in arguments.into_iter().skip(1) {
             let path = PathBuf::from(argument);
             let path = if path.is_absolute() {
                 path
             } else {
                 current_directory.join(path)
             };
-            queue_associated_document(&state, path)
-        });
+            queued |= queue_associated_document(&state, path);
+        }
         if queued {
             focus_and_notify(app);
         }
@@ -72,7 +74,8 @@ pub fn run() {
             load_sidecar,
             save_sidecar,
             export_review,
-            poll_source,
+            watch_source,
+            unwatch_source,
             reload_source,
             read_local_image,
             open_external,
@@ -88,11 +91,12 @@ pub fn run() {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = _event {
             let state = _app.state::<AppState>();
-            let queued = urls.into_iter().any(|url| {
-                url.to_file_path()
-                    .ok()
-                    .is_some_and(|path| queue_associated_document(&state, path))
-            });
+            let mut queued = false;
+            for url in urls {
+                if let Ok(path) = url.to_file_path() {
+                    queued |= queue_associated_document(&state, path);
+                }
+            }
             if queued {
                 focus_and_notify(_app);
             }

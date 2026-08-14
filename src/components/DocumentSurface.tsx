@@ -53,11 +53,22 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
         "rd-anchor-selected",
       );
       delete span.dataset.rdCommentIds;
+      if (span.dataset.rdAnchorControl === "true") {
+        delete span.dataset.rdAnchorControl;
+        span.removeAttribute("role");
+        span.removeAttribute("tabindex");
+        span.removeAttribute("aria-label");
+      }
     }
+    const accessibleAnchors = new Map<
+      HTMLElement,
+      { comment: ReviewComment; match: AnchorMatch }[]
+    >();
     for (const comment of props.comments) {
       const match = props.matches.get(comment.id);
       const candidate = match?.candidate;
       if (!match || !candidate) continue;
+      let firstMatchedSpan: HTMLElement | undefined;
       let low = 0;
       let high = positionedSpans.length;
       while (low < high) {
@@ -85,6 +96,7 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
           )
         )
           continue;
+        firstMatchedSpan ??= span.element;
         span.element.classList.add("rd-anchor", `rd-anchor-${match.state}`);
         const ids =
           span.element.dataset.rdCommentIds?.split(",").filter(Boolean) ?? [];
@@ -94,6 +106,25 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
         if (comment.id === props.selectedCommentId)
           span.element.classList.add("rd-anchor-selected");
       }
+      if (firstMatchedSpan) {
+        const entries = accessibleAnchors.get(firstMatchedSpan) ?? [];
+        entries.push({ comment, match });
+        accessibleAnchors.set(firstMatchedSpan, entries);
+      }
+    }
+    for (const [element, entries] of accessibleAnchors) {
+      element.dataset.rdAnchorControl = "true";
+      element.setAttribute("role", "button");
+      element.tabIndex = 0;
+      element.setAttribute(
+        "aria-label",
+        entries
+          .map(
+            ({ comment, match }) =>
+              `${comment.status} review comment, ${match.state} anchor: ${comment.anchor.textQuote.exact}`,
+          )
+          .join("; "),
+      );
     }
   }, [
     props.comments,
@@ -157,6 +188,17 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
       onKeyUp={(event) => {
         if (event.key === "Shift" || event.key.startsWith("Arrow"))
           props.onSelection();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const anchor = (event.target as Element).closest<HTMLElement>(
+          '[data-rd-anchor-control="true"]',
+        );
+        const id = anchor?.dataset.rdCommentIds?.split(",")[0];
+        if (id) {
+          event.preventDefault();
+          props.onSelectComment(id);
+        }
       }}
       onClick={(event) => {
         const target = event.target as Element;

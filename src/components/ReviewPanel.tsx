@@ -10,6 +10,7 @@ type ReviewPanelProps = {
   filter: CommentFilter;
   selectedId: string | null;
   readOnly: boolean;
+  readOnlyMessage?: string;
   onSelect: (id: string) => void;
   onEdit: (id: string, body: string) => void;
   onToggleResolved: (comment: ReviewComment) => void;
@@ -61,7 +62,7 @@ function CommentCard(
             <button
               className="primaryButton"
               type="button"
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || props.readOnly}
               onClick={() => {
                 props.onEdit(comment.id, draft.trim());
                 setEditing(false);
@@ -116,6 +117,7 @@ function CommentCard(
           <button
             className="dangerButton"
             type="button"
+            disabled={props.readOnly}
             onClick={() => props.onDelete(comment.id)}
           >
             Delete comment
@@ -177,7 +179,8 @@ export function ReviewPanel(props: ReviewPanelProps) {
       </div>
       {props.readOnly && (
         <p className="inlineWarning">
-          This sidecar is read-only until its validation issue is resolved.
+          {props.readOnlyMessage ??
+            "This sidecar is read-only until its validation issue is resolved."}
         </p>
       )}
       {comments.length === 0 ? (

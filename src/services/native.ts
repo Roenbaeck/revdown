@@ -44,7 +44,10 @@ export type NativeService = {
     defaultFilename: string,
     contents: string,
   ): Promise<ExportResult>;
-  pollSource(sessionId: string): Promise<SourceRevision>;
+  observeSourceChanges(
+    sessionId: string,
+    listener: () => void,
+  ): Promise<() => void>;
   reloadSource(sessionId: string): Promise<OpenedDocument>;
   readLocalImage(
     sessionId: string,
