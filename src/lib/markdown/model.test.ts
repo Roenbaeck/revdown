@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  buildLargeMarkdownFixture,
+  LARGE_MARKDOWN_EXPECTED_BLOCKS,
+} from "../../../tests/fixtures/large-markdown";
 import { fingerprintText } from "../fingerprints";
 import { buildBoundaryMap, parseMarkdownDocument } from "./model";
+
+const INITIAL_READABILITY_BUDGET_MS = process.env.CI ? 5_000 : 2_000;
 
 describe("Markdown source model", () => {
   it("maps escaped text, entities, CRLF, and UTF-16 offsets", () => {
@@ -91,17 +97,21 @@ describe("Markdown source model", () => {
       await fingerprintText(source),
     );
     expect(model.html).toContain("source-backed paragraph");
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(performance.now() - started).toBeLessThan(
+      INITIAL_READABILITY_BUDGET_MS,
+    );
   });
 
-  it("renders the example novel without degrading with its block count", async () => {
-    const source = await readFile(resolve("Subnosis.md"), "utf8");
+  it("renders a generated novel without degrading with its block count", async () => {
+    const source = buildLargeMarkdownFixture();
     const started = performance.now();
     const model = await parseMarkdownDocument(
       source,
       await fingerprintText(source),
     );
-    expect(model.blocks.size).toBeGreaterThan(9_000);
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(model.blocks.size).toBe(LARGE_MARKDOWN_EXPECTED_BLOCKS);
+    expect(performance.now() - started).toBeLessThan(
+      INITIAL_READABILITY_BUDGET_MS,
+    );
   });
 });

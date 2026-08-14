@@ -503,6 +503,23 @@ function mappedSpan(
   };
 }
 
+function directlyMappedSpan(
+  value: string,
+  start: number,
+  end: number,
+): Element {
+  return {
+    type: "element",
+    tagName: "span",
+    properties: {
+      className: ["rd-source-text"],
+      "data-rd-source-start": String(start),
+      "data-rd-source-end": String(end),
+    },
+    children: [{ type: "text", value }],
+  };
+}
+
 function codeTokenStyle(token: HighlightToken): string | undefined {
   const declarations: string[] = [];
   if (token.color && /^#[0-9a-f]{3,8}$/iu.test(token.color))
@@ -606,10 +623,10 @@ function decorateTextNodes(root: HastRoot, source: string): void {
           child.value.length === 0
         )
           return child;
-        return mappedSpan(
-          child.value,
-          buildBoundaryMap(source.slice(start, end), child.value, start),
-        );
+        const raw = source.slice(start, end);
+        return raw === child.value
+          ? directlyMappedSpan(child.value, start, end)
+          : mappedSpan(child.value, buildBoundaryMap(raw, child.value, start));
       }
       if (child.type === "element") recurse(child, inline);
       return child;

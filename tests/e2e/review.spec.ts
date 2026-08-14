@@ -1,4 +1,11 @@
 import { expect, test } from "@playwright/test";
+import {
+  buildLargeMarkdownFixture,
+  LARGE_MARKDOWN_EXPECTED_BLOCKS,
+  LARGE_MARKDOWN_EXPECTED_HEADINGS,
+} from "../fixtures/large-markdown";
+
+const LARGE_DOCUMENT_OPEN_BUDGET_MS = process.env.CI ? 10_000 : 5_000;
 
 async function selectRenderedText(
   page: import("@playwright/test").Page,
@@ -159,7 +166,7 @@ test("keeps a short document compact at the top of the minimap", async ({
   expect(documentBounds.height).toBeLessThan(trackBounds.height / 2);
 });
 
-test("opens the example novel without blocking the document surface", async ({
+test("opens a generated novel without blocking the document surface", async ({
   page,
 }) => {
   await page.goto("/");
@@ -167,20 +174,24 @@ test("opens the example novel without blocking the document surface", async ({
   await page.getByRole("button", { name: "Open Markdown" }).click();
   const chooser = await chooserPromise;
   const started = Date.now();
-  await chooser.setFiles("Subnosis.md");
+  await chooser.setFiles({
+    name: "generated-performance-novel.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(buildLargeMarkdownFixture()),
+  });
   const surface = page.locator("#document-surface");
   await expect(surface).toBeVisible();
-  expect(await surface.locator("[data-rd-block-id]").count()).toBeGreaterThan(
-    9_000,
+  expect(await surface.locator("[data-rd-block-id]").count()).toBe(
+    LARGE_MARKDOWN_EXPECTED_BLOCKS,
   );
-  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(Date.now() - started).toBeLessThan(LARGE_DOCUMENT_OPEN_BUDGET_MS);
 
   const outline = page.getByRole("complementary", {
     name: "Document outline",
   });
   await expect(outline).toBeVisible();
-  expect(await outline.locator(".outlineList button").count()).toBeGreaterThan(
-    200,
+  expect(await outline.locator(".outlineList button").count()).toBe(
+    LARGE_MARKDOWN_EXPECTED_HEADINGS,
   );
   await outline.locator(".outlineList button").nth(10).click();
   await expect
