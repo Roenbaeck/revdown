@@ -25,6 +25,7 @@ impl FullscreenState {
         self.immersive.load(Ordering::SeqCst) || self.native.load(Ordering::SeqCst)
     }
 
+    #[cfg(any(target_os = "macos", test))]
     fn record_native_transition(&self, native: bool) -> Option<bool> {
         if self.immersive.load(Ordering::SeqCst) {
             return None;
@@ -60,6 +61,7 @@ pub fn set_window_fullscreen(
     state: State<'_, Arc<FullscreenState>>,
     fullscreen: bool,
 ) -> Result<(), FullscreenError> {
+    #[cfg(target_os = "macos")]
     let native = window
         .is_fullscreen()
         .map_err(|_| FullscreenError::native())?;
