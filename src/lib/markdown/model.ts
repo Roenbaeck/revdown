@@ -1,10 +1,18 @@
-import type { Element, ElementContent, Root as HastRoot } from "hast";
+import type {
+  Element,
+  ElementContent,
+  Root as HastRoot,
+  RootContent,
+  Text as HastText,
+} from "hast";
 import type {
   Code,
   InlineCode,
   Nodes as MdastNode,
   Root as MdastRoot,
 } from "mdast";
+import { decodeNamedCharacterReference } from "decode-named-character-reference";
+import { decodeNumericCharacterReference } from "micromark-util-decode-numeric-character-reference";
 import rehypeKatex from "rehype-katex";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
@@ -135,11 +143,18 @@ function renderedMapping(source: string, node: MdastNode): RenderedMapping {
       range && text
         ? node.type === "code"
           ? buildCodeBoundaryMap(source, node, range.start, range.end)
-          : buildBoundaryMap(
-              source.slice(range.start, range.end),
-              text,
-              range.start,
-            )
+          : node.type === "inlineCode"
+            ? buildInlineCodeBoundaryMap(
+                source,
+                node.value,
+                range.start,
+                range.end,
+              )
+            : buildBoundaryMap(
+                source.slice(range.start, range.end),
+                text,
+                range.start,
+              )
         : undefined;
     mapping = {
       text,
@@ -254,38 +269,43 @@ function collectSourceRecords(
   return { blocks, inlines };
 }
 
+type DecodedSourceUnit = {
+  value: string;
+  start: number;
+  end: number;
+};
+
+type BoundaryMapOptions = {
+  normalizeWhitespace?: boolean;
+};
+
 function decodeEntity(entity: string): string | undefined {
   if (/^&#x[0-9a-f]+;$/iu.test(entity)) {
-    return String.fromCodePoint(Number.parseInt(entity.slice(3, -1), 16));
+    return decodeNumericCharacterReference(entity.slice(3, -1), 16);
   }
   if (/^&#\d+;$/u.test(entity)) {
-    return String.fromCodePoint(Number.parseInt(entity.slice(2, -1), 10));
+    return decodeNumericCharacterReference(entity.slice(2, -1), 10);
   }
-  const named: Readonly<Record<string, string>> = {
-    "&amp;": "&",
-    "&apos;": "'",
-    "&gt;": ">",
-    "&lt;": "<",
-    "&nbsp;": "\u00a0",
-    "&quot;": '"',
-  };
-  return named[entity];
+  const named = decodeNamedCharacterReference(entity.slice(1, -1));
+  return named || undefined;
 }
 
-export function buildBoundaryMap(
-  raw: string,
-  visible: string,
-  absoluteStart: number,
-): number[] | undefined {
-  if (raw === visible) {
-    return Array.from(
-      { length: visible.length + 1 },
-      (_, index) => absoluteStart + index,
-    );
+function appendDecodedUnits(
+  units: DecodedSourceUnit[],
+  value: string,
+  start: number,
+  end: number,
+): void {
+  for (const unit of value.split("")) {
+    units.push({ value: unit, start, end });
   }
+}
 
-  let decoded = "";
-  const boundaries = [absoluteStart];
+function decodeSourceUnits(
+  raw: string,
+  absoluteStart: number,
+): DecodedSourceUnit[] {
+  const units: DecodedSourceUnit[] = [];
   let index = 0;
   while (index < raw.length) {
     const current = raw[index];
@@ -294,9 +314,12 @@ export function buildBoundaryMap(
       index + 1 < raw.length &&
       /[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/u.test(raw[index + 1] ?? "")
     ) {
-      decoded += raw[index + 1];
-      boundaries[boundaries.length - 1] = absoluteStart + index;
-      boundaries.push(absoluteStart + index + 2);
+      appendDecodedUnits(
+        units,
+        raw[index + 1] ?? "",
+        absoluteStart + index,
+        absoluteStart + index + 2,
+      );
       index += 2;
       continue;
     }
@@ -306,39 +329,159 @@ export function buildBoundaryMap(
       )?.[0];
       const entityValue = candidate ? decodeEntity(candidate) : undefined;
       if (candidate && entityValue) {
-        decoded += entityValue;
-        for (let unit = 0; unit < entityValue.length; unit += 1) {
-          if (unit === 0)
-            boundaries[boundaries.length - 1] = absoluteStart + index;
-          boundaries.push(absoluteStart + index + candidate.length);
-        }
+        appendDecodedUnits(
+          units,
+          entityValue,
+          absoluteStart + index,
+          absoluteStart + index + candidate.length,
+        );
         index += candidate.length;
         continue;
       }
     }
     if (current === "\r") {
       const width = raw[index + 1] === "\n" ? 2 : 1;
-      decoded += "\n";
-      boundaries[boundaries.length - 1] = absoluteStart + index;
-      boundaries.push(absoluteStart + index + width);
+      appendDecodedUnits(
+        units,
+        "\n",
+        absoluteStart + index,
+        absoluteStart + index + width,
+      );
       index += width;
       continue;
     }
-    decoded += current;
-    boundaries.push(absoluteStart + index + 1);
+    appendDecodedUnits(
+      units,
+      current ?? "",
+      absoluteStart + index,
+      absoluteStart + index + 1,
+    );
     index += 1;
   }
-  if (decoded === visible && boundaries.length === visible.length + 1)
-    return boundaries;
+  return units;
+}
 
-  const exactIndex = raw.indexOf(visible);
-  if (exactIndex >= 0 && exactIndex === raw.lastIndexOf(visible)) {
+function isWhitespaceUnit(value: string): boolean {
+  return value === " " || value === "\t" || value === "\n";
+}
+
+function sourceUnitMatches(
+  source: string,
+  visible: string,
+  options: BoundaryMapOptions,
+): boolean {
+  return (
+    source === visible ||
+    (options.normalizeWhitespace === true &&
+      isWhitespaceUnit(source) &&
+      isWhitespaceUnit(visible))
+  );
+}
+
+function alignSourceUnits(
+  units: readonly DecodedSourceUnit[],
+  visible: string,
+  options: BoundaryMapOptions,
+): number[] | undefined {
+  if (!visible) return undefined;
+  const visibleUnits = visible.split("");
+  const forward: number[] = [];
+  let sourceIndex = 0;
+  for (const visibleUnit of visibleUnits) {
+    while (
+      sourceIndex < units.length &&
+      !sourceUnitMatches(units[sourceIndex]?.value ?? "", visibleUnit, options)
+    ) {
+      sourceIndex += 1;
+    }
+    if (sourceIndex >= units.length) return undefined;
+    forward.push(sourceIndex);
+    sourceIndex += 1;
+  }
+
+  const backward = new Array<number>(visibleUnits.length);
+  sourceIndex = units.length - 1;
+  for (
+    let visibleIndex = visibleUnits.length - 1;
+    visibleIndex >= 0;
+    visibleIndex -= 1
+  ) {
+    while (
+      sourceIndex >= 0 &&
+      !sourceUnitMatches(
+        units[sourceIndex]?.value ?? "",
+        visibleUnits[visibleIndex] ?? "",
+        options,
+      )
+    ) {
+      sourceIndex -= 1;
+    }
+    if (sourceIndex < 0) return undefined;
+    backward[visibleIndex] = sourceIndex;
+    sourceIndex -= 1;
+  }
+  if (forward.some((entry, index) => entry !== backward[index])) {
+    return undefined;
+  }
+
+  const first = units[forward[0] ?? -1];
+  const last = units[forward.at(-1) ?? -1];
+  if (!first || !last) return undefined;
+  const boundaries = [first.start];
+  for (let index = 1; index < forward.length; index += 1) {
+    const previous = units[forward[index - 1] ?? -1];
+    const current = units[forward[index] ?? -1];
+    if (!previous || !current) return undefined;
+    boundaries.push(Math.max(previous.end, current.start));
+  }
+  boundaries.push(last.end);
+  return boundaries;
+}
+
+export function buildBoundaryMap(
+  raw: string,
+  visible: string,
+  absoluteStart: number,
+  options: BoundaryMapOptions = {},
+): number[] | undefined {
+  if (raw === visible) {
     return Array.from(
       { length: visible.length + 1 },
-      (_, visibleIndex) => absoluteStart + exactIndex + visibleIndex,
+      (_, index) => absoluteStart + index,
     );
   }
-  return undefined;
+
+  return alignSourceUnits(
+    decodeSourceUnits(raw, absoluteStart),
+    visible,
+    options,
+  );
+}
+
+function buildInlineCodeBoundaryMap(
+  source: string,
+  visible: string,
+  start: number,
+  end: number,
+): number[] | undefined {
+  const raw = source.slice(start, end);
+  let delimiterWidth = 0;
+  while (raw[delimiterWidth] === "`") delimiterWidth += 1;
+  const closingStart = raw.length - delimiterWidth;
+  if (
+    delimiterWidth > 0 &&
+    raw.slice(closingStart) === "`".repeat(delimiterWidth)
+  ) {
+    return buildBoundaryMap(
+      raw.slice(delimiterWidth, closingStart),
+      visible,
+      start + delimiterWidth,
+      { normalizeWhitespace: true },
+    );
+  }
+  return buildBoundaryMap(raw, visible, start, {
+    normalizeWhitespace: true,
+  });
 }
 
 function buildCodeBoundaryMap(
@@ -688,9 +831,67 @@ async function renderHighlightedCode(
 }
 
 function decorateTextNodes(root: HastRoot, source: string): void {
+  function mappedTextChildren(
+    value: string,
+    start: number,
+    end: number,
+    inlineKind?: string,
+  ): ElementContent[] {
+    const raw = source.slice(start, end);
+    const boundaryMap = (candidate: string) =>
+      inlineKind === "inlineCode"
+        ? buildInlineCodeBoundaryMap(source, candidate, start, end)
+        : buildBoundaryMap(raw, candidate, start);
+    if (raw === value) return [directlyMappedSpan(value, start, end)];
+    const boundaries = boundaryMap(value);
+    if (boundaries) return [mappedSpan(value, boundaries)];
+
+    // Some rehype transforms append presentation-only whitespace to an
+    // authored text node (footnote backlinks are one example). Keep the
+    // authored portion mapped and leave only that generated boundary outside
+    // the source map.
+    let visibleStart = 0;
+    let visibleEnd = value.length;
+    while (
+      visibleStart < visibleEnd &&
+      isWhitespaceUnit(value[visibleStart] ?? "")
+    )
+      visibleStart += 1;
+    while (
+      visibleEnd > visibleStart &&
+      isWhitespaceUnit(value[visibleEnd - 1] ?? "")
+    )
+      visibleEnd -= 1;
+    const authored = value.slice(visibleStart, visibleEnd);
+    const authoredBoundaries = authored ? boundaryMap(authored) : undefined;
+    if (!authoredBoundaries) return [mappedSpan(value, undefined)];
+
+    const children: ElementContent[] = [];
+    if (visibleStart > 0) {
+      children.push({ type: "text", value: value.slice(0, visibleStart) });
+    }
+    children.push(mappedSpan(authored, authoredBoundaries));
+    if (visibleEnd < value.length) {
+      children.push({ type: "text", value: value.slice(visibleEnd) });
+    }
+    return children;
+  }
+
+  function decorateText(
+    child: HastText,
+    inline?: { start: number; end: number; kind?: string },
+  ): ElementContent[] | undefined {
+    const start = child.position?.start.offset ?? inline?.start;
+    const end = child.position?.end.offset ?? inline?.end;
+    if (start === undefined || end === undefined || child.value.length === 0) {
+      return undefined;
+    }
+    return mappedTextChildren(child.value, start, end, inline?.kind);
+  }
+
   function recurse(
     parent: HastRoot | Element,
-    inheritedInline?: { start: number; end: number },
+    inheritedInline?: { start: number; end: number; kind?: string },
   ): void {
     const parentClasses = parent.type === "element" ? classNames(parent) : [];
     if (
@@ -705,26 +906,23 @@ function decorateTextNodes(root: HastRoot, source: string): void {
         ? {
             start: Number(parent.properties["data-rd-inline-start"]),
             end: Number(parent.properties["data-rd-inline-end"]),
+            kind: String(parent.properties["data-rd-inline-kind"] ?? ""),
           }
         : inheritedInline;
 
-    parent.children = parent.children.map((child) => {
-      if (child.type === "text") {
-        const start = child.position?.start.offset ?? inline?.start;
-        const end = child.position?.end.offset ?? inline?.end;
-        if (
-          start === undefined ||
-          end === undefined ||
-          child.value.length === 0
-        )
-          return child;
-        const raw = source.slice(start, end);
-        return raw === child.value
-          ? directlyMappedSpan(child.value, start, end)
-          : mappedSpan(child.value, buildBoundaryMap(raw, child.value, start));
-      }
+    if (parent.type === "root") {
+      parent.children = parent.children.flatMap((child): RootContent[] => {
+        if (child.type === "text")
+          return decorateText(child, inline) ?? [child];
+        if (child.type === "element") recurse(child, inline);
+        return [child];
+      });
+      return;
+    }
+    parent.children = parent.children.flatMap((child): ElementContent[] => {
+      if (child.type === "text") return decorateText(child, inline) ?? [child];
       if (child.type === "element") recurse(child, inline);
-      return child;
+      return [child];
     });
   }
   recurse(root);

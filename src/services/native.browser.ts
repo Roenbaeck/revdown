@@ -19,7 +19,7 @@ const demoSource = `# Welcome to Revdown
 
 Revdown lets you review **rendered Markdown** without changing the source document.
 
-Select text in this paragraph, then choose “Comment on selection.” Comments are stored in a versioned sidecar and can be exported for a person or coding agent.
+Select text in this paragraph to add a comment. Comments are stored in a versioned sidecar and can be exported for a person or coding agent.
 
 | Capability | MVP behavior |
 | --- | --- |

@@ -263,6 +263,7 @@ test("creates, manages, and navigates a source-backed comment", async ({
   const anchor = page.getByRole("button", {
     name: "open review comment, exact anchor: rendered Markdown",
   });
+  await expect(anchor).toHaveText("rendered Markdown");
   await anchor.focus();
   await anchor.press("Enter");
   await expect(page.locator('.commentCard[aria-current="true"]')).toContainText(
@@ -300,6 +301,36 @@ test("creates, manages, and navigates a source-backed comment", async ({
   ).toBeVisible();
 });
 
+test("highlights only the exact selection inside a longer text span", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Open Markdown" }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: "precise-highlight.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(
+      "# Precise highlight\n\nThis sentence mentions symlink and sidecar as separate targets.",
+    ),
+  });
+  await expect(
+    page.getByRole("heading", { name: "Precise highlight" }),
+  ).toBeVisible();
+
+  await selectRenderedText(page, "symlink");
+  const composer = page.getByRole("dialog", { name: "New review comment" });
+  await composer.getByPlaceholder("What should change?").fill("Check symlink.");
+  await composer.getByRole("button", { name: "Save comment" }).click();
+
+  const anchor = page.getByRole("button", {
+    name: "open review comment, exact anchor: symlink",
+  });
+  await expect(anchor).toHaveText("symlink");
+  await expect(page.locator(".rd-anchor")).toHaveCount(1);
+});
+
 test("comments on text inside a tight linked list item", async ({ page }) => {
   await page.goto("/");
   const chooserPromise = page.waitForEvent("filechooser");
@@ -329,6 +360,16 @@ test("exports a self-describing review to the clipboard", async ({
     "WebKit does not expose clipboard permissions consistently in headless mode.",
   );
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await clickToolbarAction(page, "Export", "Edit instructions…");
+  const instructions = page.getByRole("dialog", {
+    name: "Review instructions",
+  });
+  const customInstruction =
+    "Apply the feedback using the project terminology. Report anything you cannot locate.";
+  await instructions
+    .getByRole("textbox", { name: "Instruction" })
+    .fill(customInstruction);
+  await instructions.getByRole("button", { name: "Save instructions" }).click();
   await selectRenderedText(page, "source document");
   const composer = page.getByRole("dialog", { name: "New review comment" });
   await composer
@@ -339,8 +380,17 @@ test("exports a self-describing review to the clipboard", async ({
   await expect(page.getByText("Review copied to the clipboard.")).toBeVisible();
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboard).toContain("# Revdown review");
-  expect(clipboard).toContain("Never guess an ambiguous or unmatched target");
+  expect(clipboard).toContain(customInstruction);
+  expect(clipboard).not.toContain(
+    "Never guess an ambiguous or unmatched target",
+  );
   expect(clipboard).toContain("Add a concrete integrity example.");
+
+  await page.reload();
+  await clickToolbarAction(page, "Export", "Edit instructions…");
+  await expect(page.getByRole("textbox", { name: "Instruction" })).toHaveValue(
+    customInstruction,
+  );
 });
 
 test("rejects a selection spanning unrelated blocks", async ({ page }) => {

@@ -89,4 +89,24 @@ describe("review export", () => {
       "`[link](https://example.com) › *bold*\\t- forged`",
     );
   });
+
+  it("uses a customized instruction while retaining the export structure", () => {
+    const sidecar = createEmptySidecar({
+      filename: "draft.md",
+      sha256: HASH_A,
+      normalizedSha256: HASH_B,
+    });
+    const output = generateReviewMarkdown(sidecar, new Map(), {
+      instruction:
+        "Apply these comments in order.\n\n- Keep the examples short.",
+    });
+
+    expect(output).toContain(
+      "## Instructions for applying this review\n\nApply these comments in order.\n\n- Keep the examples short.",
+    );
+    expect(output).toContain("Exported comments: 0");
+    expect(output).not.toContain(
+      "Never guess an ambiguous or unmatched target",
+    );
+  });
 });

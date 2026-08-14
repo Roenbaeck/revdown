@@ -97,7 +97,10 @@ formatting from becoming a fragile persistence contract.
 
 Exports describe the task and format without assuming the document's domain or
 the capabilities of a specific LLM. The instructions ask a reviser to preserve
-the source's purpose, voice, and style unless a comment directs otherwise.
+the source's purpose, voice, and style unless a comment directs otherwise. A
+model-agnostic default is provided, and the user may replace it with an
+app-wide instruction that is stored locally and used for both clipboard and
+file exports.
 
 ## 6. Primary Workflow
 
@@ -147,9 +150,8 @@ Revdown is already running reuses and focuses the existing application window.
 
 ### 7.2 Creating a comment
 
-After a valid text selection, a small comment action appears near the selection.
-Activating it opens a focused composer. Saving creates the sidecar if necessary.
-Canceling creates no persistent data.
+After a valid text selection, a focused composer appears near the selection.
+Saving creates the sidecar if necessary. Canceling creates no persistent data.
 
 For the MVP, a selection must remain within one source-backed block, such as a
 paragraph, heading, list item, blockquote paragraph, table cell, or code block.
@@ -385,7 +387,8 @@ high-confidence match.
 The generated Markdown review contains:
 
 - the target filename and observed document hashes;
-- short format and execution instructions;
+- short format and execution instructions, using the user's locally stored
+  customization when present;
 - each exported comment's ID and anchor state;
 - heading context and line hints;
 - exact target text plus prefix and suffix;
@@ -395,7 +398,8 @@ The generated Markdown review contains:
 Open comments are exported by default. The user may include resolved comments.
 Ambiguous and unmatched comments remain in the export and are clearly marked.
 
-The generated instructions will communicate these rules:
+The default generated instructions communicate these rules. The export editor
+lets the user replace the default and restore it later:
 
 1. Locate each target using all supplied anchor evidence rather than line hints
    alone.

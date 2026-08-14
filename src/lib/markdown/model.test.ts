@@ -14,8 +14,24 @@ describe("Markdown source model", () => {
   it("maps escaped text, entities, CRLF, and UTF-16 offsets", () => {
     expect(buildBoundaryMap("\\*", "*", 7)).toEqual([7, 9]);
     expect(buildBoundaryMap("&amp;", "&", 4)).toEqual([4, 9]);
+    expect(buildBoundaryMap("&copy;", "©", 2)).toEqual([2, 8]);
     expect(buildBoundaryMap("a\r\nb", "a\nb", 10)).toEqual([10, 11, 13, 14]);
     expect(buildBoundaryMap("😀", "😀", 3)).toEqual([3, 4, 5]);
+  });
+
+  it("aligns parser-stripped container prefixes only when the mapping is unambiguous", () => {
+    const listRaw = "wrapped\n    continuation";
+    const listVisible = "wrapped\ncontinuation";
+    const listMap = buildBoundaryMap(listRaw, listVisible, 20);
+    const continuationStart = listVisible.indexOf("continuation");
+    expect(listMap?.[continuationStart]).toBe(32);
+    expect(listMap?.at(-1)).toBe(44);
+
+    const quoteRaw = "quoted\n> continued";
+    const quoteVisible = "quoted\ncontinued";
+    const quoteMap = buildBoundaryMap(quoteRaw, quoteVisible, 5);
+    expect(quoteMap?.[quoteVisible.indexOf("continued")]).toBe(14);
+    expect(buildBoundaryMap("aaa", "aa", 0)).toBeUndefined();
   });
 
   it("renders GFM, safe math, lazy-highlighted code, and source-backed blocks", async () => {
@@ -49,6 +65,27 @@ describe("Markdown source model", () => {
       [...model.blocks.values()].find((block) => block.kind === "code")
         ?.codeMap,
     ).toBeDefined();
+  });
+
+  it("keeps authored text mappable across lists, quotations, entities, and inline code", async () => {
+    const source = [
+      "- [x] **Wrapped task text",
+      "      continues here.** Plain text",
+      "      continues too with &copy;.",
+      "",
+      "> Quoted text",
+      "> continues here.",
+      "",
+      "Inline `` multi",
+      "line `` code.",
+    ].join("\n");
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+
+    expect(model.html).not.toContain("data-rd-source-unmappable");
+    expect(model.html).toContain("©");
   });
 
   it("does not execute or retain raw HTML and strips unsafe URL schemes", async () => {
@@ -114,6 +151,7 @@ describe("Markdown source model", () => {
     expect(model.html).toContain("data-footnotes");
     expect(model.html).toContain('href="#user-content-fn-');
     expect(model.html).not.toContain('data-rd-href="#user-content-fn-');
+    expect(model.html).not.toContain("data-rd-source-unmappable");
     expect(model.html).toContain("katex-display");
     expect(model.html).toContain("--shiki-dark:");
     expect(

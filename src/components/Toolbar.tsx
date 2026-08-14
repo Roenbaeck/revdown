@@ -12,11 +12,10 @@ type ToolbarProps = {
   windowFullscreen: boolean;
   includeResolved: boolean;
   saveStatus: SaveStatus;
-  canComment: boolean;
   canExport: boolean;
   canNavigate: boolean;
   onOpen: () => void;
-  onComment: () => void;
+  onEditExportInstructions: () => void;
   onTogglePanel: () => void;
   onToggleOutline: () => void;
   onToggleMinimap: () => void;
@@ -36,7 +35,7 @@ function closeToolbarMenu(event: MouseEvent<HTMLElement>): void {
 export function Toolbar(props: ToolbarProps) {
   return (
     <header className="toolbar" data-tauri-drag-region>
-      <div className="brand" aria-label="Revdown">
+      <div className="brand" aria-label="Revdown" data-tauri-drag-region>
         <span className="brandMark" aria-hidden="true">
           <BrandGlyph />
         </span>
@@ -53,32 +52,20 @@ export function Toolbar(props: ToolbarProps) {
           Open
         </span>
       </button>
-      <span className="filename" title={props.filename}>
+      <span className="filename" title={props.filename} data-tauri-drag-region>
         {props.filename ?? "No document open"}
       </span>
-      <div className="toolbarSpacer" />
+      <div className="toolbarSpacer" data-tauri-drag-region />
       <span
         className={`saveState saveState-${props.saveStatus}`}
         aria-live="polite"
+        data-tauri-drag-region
       >
         {props.saveStatus === "saving" && "Saving…"}
         {props.saveStatus === "saved" && "Saved"}
         {props.saveStatus === "conflict" && "Save conflict"}
         {props.saveStatus === "error" && "Save failed"}
       </span>
-      <button
-        className="toolbarCommentButton"
-        type="button"
-        onClick={props.onComment}
-        disabled={!props.canComment}
-        title="⌘/Ctrl+Shift+M"
-        aria-label="Comment on selection"
-      >
-        <span className="toolbarWideLabel">Comment on selection</span>
-        <span className="toolbarCompactLabel" aria-hidden="true">
-          Comment
-        </span>
-      </button>
       <label className="compactField">
         <span className="visuallyHidden">Filter comments</span>
         <select
@@ -103,6 +90,9 @@ export function Toolbar(props: ToolbarProps) {
           />
           Export resolved
         </label>
+        <button type="button" onClick={props.onEditExportInstructions}>
+          Edit instructions…
+        </button>
         <button
           type="button"
           onClick={props.onCopy}
@@ -168,6 +158,15 @@ export function Toolbar(props: ToolbarProps) {
             />
             Include resolved comments
           </label>
+          <button
+            type="button"
+            onClick={(event) => {
+              props.onEditExportInstructions();
+              closeToolbarMenu(event);
+            }}
+          >
+            Edit instructions…
+          </button>
           <button
             type="button"
             onClick={(event) => {

@@ -149,6 +149,113 @@ describe("DOM selection source mapping", () => {
     surface.remove();
   });
 
+  it("maps wrapped task-list, nested-list, and blockquote continuations", async () => {
+    const source = [
+      "- [x] **Wrapped target",
+      "      continues here.** Plain text",
+      "      continues too.",
+      "  - Nested text",
+      "    continues nested.",
+      "",
+      "> Quoted text",
+      "> continues quoted.",
+    ].join("\n");
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    const surface = document.createElement("article");
+    surface.innerHTML = model.html;
+    document.body.append(surface);
+
+    const task = mapDomSelection(
+      selectText(surface, "continues here"),
+      surface,
+      model,
+    );
+    expect(task.kind).toBe("mapped");
+    if (task.kind === "mapped")
+      expect(task.selection.sourceText).toBe("continues here");
+
+    const plain = mapDomSelection(
+      selectText(surface, "Plain text\ncontinues too"),
+      surface,
+      model,
+    );
+    expect(plain.kind).toBe("mapped");
+    if (plain.kind === "mapped") {
+      expect(plain.selection.sourceText).toBe(
+        "Plain text\n      continues too",
+      );
+    }
+
+    const nested = mapDomSelection(
+      selectText(surface, "continues nested"),
+      surface,
+      model,
+    );
+    expect(nested.kind).toBe("mapped");
+    if (nested.kind === "mapped")
+      expect(nested.selection.sourceText).toBe("continues nested");
+
+    const quote = mapDomSelection(
+      selectText(surface, "Quoted text\ncontinues quoted"),
+      surface,
+      model,
+    );
+    expect(quote.kind).toBe("mapped");
+    if (quote.kind === "mapped") {
+      expect(quote.selection.sourceText).toBe(
+        "Quoted text\n> continues quoted",
+      );
+    }
+    surface.remove();
+  });
+
+  it("maps normalized multiline inline code back to its complete source node", async () => {
+    const source = "Use `` multi\nline `` code.";
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    const surface = document.createElement("article");
+    surface.innerHTML = model.html;
+    document.body.append(surface);
+
+    const mapped = mapDomSelection(
+      selectText(surface, "multi line"),
+      surface,
+      model,
+    );
+    expect(mapped.kind).toBe("mapped");
+    if (mapped.kind === "mapped") {
+      expect(mapped.selection.sourceText).toBe("`` multi\nline ``");
+    }
+    surface.remove();
+  });
+
+  it("maps authored footnote text separately from generated backlink content", async () => {
+    const source = "Body.[^note]\n\n[^note]: Authored footnote text.";
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    const surface = document.createElement("article");
+    surface.innerHTML = model.html;
+    document.body.append(surface);
+
+    const mapped = mapDomSelection(
+      selectText(surface, "Authored footnote text"),
+      surface,
+      model,
+    );
+    expect(mapped.kind).toBe("mapped");
+    if (mapped.kind === "mapped") {
+      expect(mapped.selection.sourceText).toBe("Authored footnote text");
+    }
+    surface.remove();
+  });
+
   it("keeps adjacent tight list items as separate comment targets", async () => {
     const source = "- First compact item.\n- Second compact item.";
     const model = await parseMarkdownDocument(

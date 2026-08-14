@@ -45,7 +45,7 @@ the application database.
 - Comments anchored to rendered selections
 - Conservative re-anchoring after document drift
 - Clear reporting of ambiguous and unmatched feedback
-- Markdown file and clipboard export for LLM and agent workflows
+- Markdown file and clipboard export with customizable review instructions
 - Local-first operation with no account or API key required
 
 ## Stack

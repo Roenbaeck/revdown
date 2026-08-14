@@ -1,8 +1,10 @@
 import type { AnchorMatch } from "../anchors/match";
 import type { ReviewComment, SidecarV1 } from "../schema/sidecar";
+import { defaultExportInstruction } from "../settings/export";
 
 export type ReviewExportOptions = {
   includeResolved?: boolean;
+  instruction?: string;
 };
 
 function fenced(value: string, language = "text"): string {
@@ -101,6 +103,10 @@ export function generateReviewMarkdown(
   const comments = sidecar.comments.filter(
     (comment) => options.includeResolved === true || comment.status === "open",
   );
+  const customInstruction = options.instruction?.trim();
+  const instruction = customInstruction?.length
+    ? customInstruction
+    : defaultExportInstruction;
   const sections = [
     "# Revdown review",
     "",
@@ -111,9 +117,7 @@ export function generateReviewMarkdown(
     "",
     "## Instructions for applying this review",
     "",
-    "Use all supplied anchor evidence; line numbers are hints, not identities. Apply each comment while preserving the document’s purpose, voice, style, and formatting unless the feedback requests otherwise. Keep edits focused, adjusting nearby text only when needed for grammar, correctness, consistency, or natural flow. Avoid unrelated rewrites. Never guess an ambiguous or unmatched target.",
-    "",
-    "When filesystem tools are available, edit the named source file and summarize the result. Otherwise provide the revised document in the form appropriate to the active conversation. Report every comment as applied, skipped, ambiguous, or unmatched.",
+    instruction,
     "",
     `Exported comments: ${comments.length}`,
   ];

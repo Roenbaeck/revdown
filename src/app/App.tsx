@@ -10,6 +10,7 @@ import { BrandGlyph } from "../components/BrandGlyph";
 import { DocumentMinimap } from "../components/DocumentMinimap";
 import { DocumentOutline } from "../components/DocumentOutline";
 import { DocumentSurface } from "../components/DocumentSurface";
+import { ExportInstructionsDialog } from "../components/ExportInstructionsDialog";
 import { ReviewPanel } from "../components/ReviewPanel";
 import { ReaderSettingsPanel } from "../components/ReaderSettingsPanel";
 import { SelectionComposer } from "../components/SelectionComposer";
@@ -28,6 +29,10 @@ import {
 import { fingerprintText } from "../lib/fingerprints";
 import { generateReviewMarkdown } from "../lib/export/review";
 import { parseMarkdownDocument } from "../lib/markdown/model";
+import {
+  loadExportInstruction,
+  saveExportInstruction,
+} from "../lib/settings/export";
 import {
   applyReaderSettings,
   loadReaderSettings,
@@ -85,6 +90,10 @@ export function App() {
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [minimapOpen, setMinimapOpen] = useState(true);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [exportInstructionsOpen, setExportInstructionsOpen] = useState(false);
+  const [exportInstruction, setExportInstruction] = useState(() =>
+    loadExportInstruction(window.localStorage),
+  );
   const [readerSettings, setReaderSettings] = useState<ReaderSettings>(() =>
     loadReaderSettings(window.localStorage),
   );
@@ -378,21 +387,6 @@ export function App() {
   }, [mutationsAllowed, state.model]);
 
   useEffect(() => {
-    const listener = (event: KeyboardEvent) => {
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        event.key.toLowerCase() === "m"
-      ) {
-        event.preventDefault();
-        captureSelection();
-      }
-    };
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, [captureSelection]);
-
-  useEffect(() => {
     if (!native || !activeSessionId || state.phase !== "ready") return;
     let active = true;
     let unsubscribe: (() => void) | undefined;
@@ -522,9 +516,15 @@ export function App() {
       state.sidecar
         ? generateReviewMarkdown(state.sidecar, state.matches, {
             includeResolved: state.includeResolvedExport,
+            instruction: exportInstruction,
           })
         : "",
-    [state.includeResolvedExport, state.matches, state.sidecar],
+    [
+      exportInstruction,
+      state.includeResolvedExport,
+      state.matches,
+      state.sidecar,
+    ],
   );
 
   const copyReview = async () => {
@@ -574,7 +574,6 @@ export function App() {
         panelOpen={state.panelOpen}
         includeResolved={state.includeResolvedExport}
         saveStatus={state.saveStatus}
-        canComment={Boolean(ready && state.sidecar && mutationsAllowed)}
         canExport={Boolean(ready && state.sidecar)}
         canNavigate={Boolean(ready)}
         outlineOpen={outlineOpen}
@@ -582,7 +581,10 @@ export function App() {
         appearanceOpen={appearanceOpen}
         windowFullscreen={windowFullscreen}
         onOpen={() => void openDocument()}
-        onComment={captureSelection}
+        onEditExportInstructions={() => {
+          setAppearanceOpen(false);
+          setExportInstructionsOpen(true);
+        }}
         onTogglePanel={() => dispatch({ type: "toggle_panel" })}
         onToggleOutline={() => setOutlineOpen((open) => !open)}
         onToggleMinimap={() => setMinimapOpen((open) => !open)}
@@ -603,6 +605,18 @@ export function App() {
           settings={readerSettings}
           onChange={setReaderSettings}
           onClose={closeAppearance}
+        />
+      )}
+
+      {exportInstructionsOpen && (
+        <ExportInstructionsDialog
+          instruction={exportInstruction}
+          onCancel={() => setExportInstructionsOpen(false)}
+          onSave={(instruction) => {
+            setExportInstruction(instruction);
+            saveExportInstruction(window.localStorage, instruction);
+            setExportInstructionsOpen(false);
+          }}
         />
       )}
 
