@@ -5,6 +5,8 @@ export type HighlightToken = {
   content: string;
   color?: string;
   darkColor?: string;
+  backgroundColor?: string;
+  darkBackgroundColor?: string;
   fontStyle?: number;
 };
 
@@ -83,7 +85,7 @@ function getHighlighter(): Promise<HighlighterCore> {
     engine: createJavaScriptRegexEngine(),
     themes: [
       import("@shikijs/themes/github-light"),
-      import("@shikijs/themes/github-dark"),
+      import("@shikijs/themes/github-dark-default"),
     ],
     langs: [],
   });
@@ -121,7 +123,7 @@ export async function highlightCode(
   const highlighter = await loadLanguage(language);
   const lines = highlighter.codeToTokensWithThemes(code, {
     lang: language,
-    themes: { light: "github-light", dark: "github-dark" },
+    themes: { light: "github-light", dark: "github-dark-default" },
   });
   return lines.map((line) =>
     line.map((token) => {
@@ -131,6 +133,8 @@ export async function highlightCode(
         content: token.content,
         ...(light?.color ? { color: light.color } : {}),
         ...(dark?.color ? { darkColor: dark.color } : {}),
+        ...(light?.bgColor ? { backgroundColor: light.bgColor } : {}),
+        ...(dark?.bgColor ? { darkBackgroundColor: dark.bgColor } : {}),
         ...(light?.fontStyle === undefined
           ? {}
           : { fontStyle: light.fontStyle }),

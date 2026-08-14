@@ -85,6 +85,14 @@ export class BrowserNativeService implements NativeService {
     return document;
   }
 
+  takePendingDocument(): Promise<OpenedDocument | null> {
+    return Promise.resolve(null);
+  }
+
+  observeOpenRequests(): Promise<() => void> {
+    return Promise.resolve(() => undefined);
+  }
+
   loadSidecar(sessionId: string): Promise<LoadedSidecar> {
     return Promise.resolve(this.session(sessionId).sidecar);
   }

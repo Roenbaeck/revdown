@@ -224,6 +224,49 @@ export function App() {
     [native],
   );
 
+  useEffect(() => {
+    if (!native) return;
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    let openQueue = Promise.resolve();
+
+    const consumeOpenRequest = () => {
+      openQueue = openQueue
+        .then(async () => {
+          if (cancelled) return;
+          const opened = await native.takePendingDocument();
+          if (!opened || cancelled) return;
+          dispatch({ type: "loading" });
+          await loadOpenedDocument(opened);
+          setPendingSelection(null);
+        })
+        .catch((error: unknown) => {
+          if (!cancelled)
+            dispatch({ type: "failed", message: describeError(error) });
+        });
+    };
+
+    const start = async () => {
+      try {
+        const stop = await native.observeOpenRequests(consumeOpenRequest);
+        if (cancelled) {
+          stop();
+          return;
+        }
+        unsubscribe = stop;
+      } catch {
+        // The initial queued request can still be consumed without events.
+      }
+      if (!cancelled) consumeOpenRequest();
+    };
+    void start();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [loadOpenedDocument, native]);
+
   const openDocument = useCallback(async () => {
     if (!native) return;
     dispatch({ type: "loading" });

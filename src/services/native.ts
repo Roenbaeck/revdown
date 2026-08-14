@@ -31,6 +31,8 @@ export type WindowAppearance = {
 
 export type NativeService = {
   openDocument(): Promise<OpenedDocument | null>;
+  takePendingDocument(): Promise<OpenedDocument | null>;
+  observeOpenRequests(listener: () => void): Promise<() => void>;
   loadSidecar(sessionId: string): Promise<LoadedSidecar>;
   saveSidecar(
     sessionId: string,

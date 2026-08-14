@@ -40,6 +40,16 @@
     ],
     "category": "Productivity",
     "shortDescription": "Review Markdown without changing the source",
-    "longDescription": "A local-first desktop application for precise Markdown review comments and portable review exports."
+    "longDescription": "A local-first desktop application for precise Markdown review comments and portable review exports.",
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "name": "Markdown Document",
+        "description": "Markdown document",
+        "mimeType": "text/markdown",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
   }
 }

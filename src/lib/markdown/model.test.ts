@@ -22,6 +22,7 @@ describe("Markdown source model", () => {
       "| one | two |",
       "",
       "```ts",
+      "// This comment remains readable in dark mode.",
       "const value = 1;",
       "```",
     ].join("\n");
@@ -31,6 +32,7 @@ describe("Markdown source model", () => {
     );
     expect(model.html).toContain("katex");
     expect(model.html).toContain("rd-highlighted-code");
+    expect(model.html).toContain("--shiki-dark:#8B949E");
     expect(model.html).toContain("data-rd-block-id");
     expect(model.html).toContain('data-rd-href="https://example.com"');
     expect(

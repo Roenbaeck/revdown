@@ -29,6 +29,7 @@ url = "2.5.7"
 uuid = { version = "1.18.1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2.4.3"
 windows-sys = { version = "0.61.0", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]

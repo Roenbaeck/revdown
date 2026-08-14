@@ -41,6 +41,7 @@ the application database.
 - KaTeX math rendering and Shiki code highlighting
 - Collapsible outline and comment-aware minimap for long documents
 - System-aware light, sepia, and dark themes with reading controls
+- Finder and Explorer “Open With” support for `.md` and `.markdown` files
 - Comments anchored to rendered selections
 - Conservative re-anchoring after document drift
 - Clear reporting of ambiguous and unmatched feedback

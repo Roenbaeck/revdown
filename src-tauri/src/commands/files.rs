@@ -23,6 +23,7 @@ struct Session {
 #[derive(Default)]
 pub struct AppState {
     sessions: Mutex<HashMap<String, Session>>,
+    pending_document: Mutex<Option<PathBuf>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -108,6 +109,61 @@ fn read_source(path: &Path) -> CommandResult<(String, SourceRevision)> {
         modified_ms,
     };
     Ok((content, revision))
+}
+
+fn is_markdown_path(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("md" | "markdown")
+    )
+}
+
+fn open_source_path(state: &AppState, source_path: PathBuf) -> CommandResult<OpenedDocument> {
+    if !is_markdown_path(&source_path) {
+        return Err(CommandError::new(
+            "unsupported_document",
+            "Revdown can open only Markdown documents.",
+        ));
+    }
+    let filename = source_filename(&source_path)?;
+    let (content, revision) = read_source(&source_path)?;
+    let session_id = Uuid::new_v4().to_string();
+    state
+        .sessions
+        .lock()
+        .map_err(|_| CommandError::new("state_error", "The document session is unavailable."))?
+        .insert(session_id.clone(), Session { source_path });
+    Ok(OpenedDocument {
+        session_id,
+        filename,
+        content,
+        revision,
+    })
+}
+
+pub fn queue_associated_document(state: &AppState, source_path: PathBuf) -> bool {
+    if !is_markdown_path(&source_path) || !source_path.is_file() {
+        return false;
+    }
+    let Ok(mut pending) = state.pending_document.lock() else {
+        return false;
+    };
+    *pending = Some(source_path);
+    true
+}
+
+fn take_pending_document_from_state(state: &AppState) -> CommandResult<Option<OpenedDocument>> {
+    let source_path = state
+        .pending_document
+        .lock()
+        .map_err(|_| CommandError::new("state_error", "The open request is unavailable."))?
+        .take();
+    source_path
+        .map(|path| open_source_path(state, path))
+        .transpose()
 }
 
 fn session_for(state: &AppState, session_id: &str) -> CommandResult<Session> {
@@ -303,20 +359,12 @@ pub fn open_document(state: State<'_, AppState>) -> CommandResult<Option<OpenedD
     let Some(source_path) = selected else {
         return Ok(None);
     };
-    let filename = source_filename(&source_path)?;
-    let (content, revision) = read_source(&source_path)?;
-    let session_id = Uuid::new_v4().to_string();
-    state
-        .sessions
-        .lock()
-        .map_err(|_| CommandError::new("state_error", "The document session is unavailable."))?
-        .insert(session_id.clone(), Session { source_path });
-    Ok(Some(OpenedDocument {
-        session_id,
-        filename,
-        content,
-        revision,
-    }))
+    open_source_path(&state, source_path).map(Some)
+}
+
+#[tauri::command]
+pub fn take_pending_document(state: State<'_, AppState>) -> CommandResult<Option<OpenedDocument>> {
+    take_pending_document_from_state(&state)
 }
 
 #[tauri::command]
@@ -468,6 +516,36 @@ mod tests {
             sidecar_path(Path::new("/tmp/notes.markdown")).unwrap(),
             PathBuf::from("/tmp/notes.markdown.rd.json")
         );
+    }
+
+    #[test]
+    fn associated_markdown_is_opened_without_changing_source_bytes() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("Associated.MD");
+        let source = b"# Associated\r\n\r\nOpened from Finder.\r\n";
+        fs::write(&source_path, source).unwrap();
+        let state = AppState::default();
+
+        assert!(queue_associated_document(&state, source_path.clone()));
+        let opened = take_pending_document_from_state(&state)
+            .unwrap()
+            .expect("queued document");
+
+        assert_eq!(opened.filename, "Associated.MD");
+        assert_eq!(opened.content.as_bytes(), source);
+        assert_eq!(fs::read(source_path).unwrap(), source);
+        assert!(take_pending_document_from_state(&state).unwrap().is_none());
+    }
+
+    #[test]
+    fn associated_non_markdown_files_are_ignored() {
+        let directory = tempdir().unwrap();
+        let text_path = directory.path().join("notes.txt");
+        fs::write(&text_path, b"plain text").unwrap();
+        let state = AppState::default();
+
+        assert!(!queue_associated_document(&state, text_path));
+        assert!(take_pending_document_from_state(&state).unwrap().is_none());
     }
 
     #[test]

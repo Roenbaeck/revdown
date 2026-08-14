@@ -139,6 +139,12 @@ anchor; selecting an anchor opens its comment. Outline and minimap navigation
 must remain inexpensive for novel-sized documents and must not duplicate the
 entire rendered document as hidden DOM.
 
+Packaged builds register Revdown as an alternate viewer for `.md` and
+`.markdown` documents without replacing the user's chosen default application.
+Files opened from Finder, Explorer, or a command-line launch are routed through
+the same read-only loader as the Open Markdown action. A request made while
+Revdown is already running reuses and focuses the existing application window.
+
 ### 7.2 Creating a comment
 
 After a valid text selection, a small comment action appears near the selection.

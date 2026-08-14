@@ -509,8 +509,19 @@ function codeTokenStyle(token: HighlightToken): string | undefined {
     declarations.push(`--shiki-light:${token.color}`);
   if (token.darkColor && /^#[0-9a-f]{3,8}$/iu.test(token.darkColor))
     declarations.push(`--shiki-dark:${token.darkColor}`);
+  if (token.backgroundColor && /^#[0-9a-f]{3,8}$/iu.test(token.backgroundColor))
+    declarations.push(`--shiki-light-bg:${token.backgroundColor}`);
+  if (
+    token.darkBackgroundColor &&
+    /^#[0-9a-f]{3,8}$/iu.test(token.darkBackgroundColor)
+  )
+    declarations.push(`--shiki-dark-bg:${token.darkBackgroundColor}`);
   if (token.color || token.darkColor)
     declarations.push("color:var(--shiki-token-color,var(--shiki-light))");
+  if (token.backgroundColor || token.darkBackgroundColor)
+    declarations.push(
+      "background-color:var(--shiki-token-background,var(--shiki-light-bg))",
+    );
   if (token.fontStyle !== undefined) {
     if ((token.fontStyle & 1) !== 0) declarations.push("font-style:italic");
     if ((token.fontStyle & 2) !== 0) declarations.push("font-weight:700");
