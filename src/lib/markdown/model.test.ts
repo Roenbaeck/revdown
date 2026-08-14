@@ -63,6 +63,42 @@ describe("Markdown source model", () => {
     expect(model.html).not.toContain("onerror");
   });
 
+  it("renders standalone LaTeX display delimiters with original source offsets", async () => {
+    const source = [
+      "Before the equation.",
+      "\\[",
+      "s(\\mathbf{x},\\mathbf{y}) = \\sum_i \\sigma_i x_i y_i",
+      "\\]",
+      "After the equation.",
+      "",
+      "```tex",
+      "\\[",
+      "not rendered inside code",
+      "\\]",
+      "```",
+      "",
+      "An unmatched escaped bracket: \\[",
+    ].join("\n");
+    const model = await parseMarkdownDocument(
+      source,
+      await fingerprintText(source),
+    );
+    const mathBlocks = [...model.blocks.values()].filter(
+      (block) => block.kind === "math",
+    );
+
+    expect(model.html).toContain("katex-display");
+    expect(mathBlocks).toHaveLength(1);
+    expect(source.slice(mathBlocks[0]?.start, mathBlocks[0]?.end)).toBe(
+      "\\[\ns(\\mathbf{x},\\mathbf{y}) = \\sum_i \\sigma_i x_i y_i\n\\]",
+    );
+    expect(model.html).toContain(
+      `data-rd-math-start="${mathBlocks[0]?.start}"`,
+    );
+    expect(model.html).toContain("not rendered inside code");
+    expect(model.html.match(/katex-display/gu)).toHaveLength(1);
+  });
+
   it("renders the Markdown conformance fixture including footnotes and tasks", async () => {
     const source = await readFile(
       resolve("tests/fixtures/markdown-kitchen-sink.md"),

@@ -8,6 +8,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
+import { normalizeTexDisplayMathForParsing } from "./texMath";
 
 const MAX_CACHED_COMMENTS = 256;
 const cache = new Map<string, Promise<string>>();
@@ -37,7 +38,10 @@ async function render(body: string): Promise<string> {
     .use(remarkMath)
     .use(remarkRehype)
     .use(rehypeSanitize);
-  const mdast = processor.parse(body);
+  const initialMdast = processor.parse(body);
+  const parsingBody = normalizeTexDisplayMathForParsing(body, initialMdast);
+  const mdast =
+    parsingBody === body ? initialMdast : processor.parse(parsingBody);
   const safeHast = await processor.run(mdast);
   const withMath = (await unified().use(rehypeKatex).run(safeHast)) as HastRoot;
   secureLinksAndImages(withMath);

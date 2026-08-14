@@ -15,4 +15,13 @@ describe("comment Markdown renderer", () => {
     expect(html).not.toContain("<script");
     expect(html).not.toContain("data-rd-source-start");
   });
+
+  it("renders standalone LaTeX display delimiters", async () => {
+    const html = await renderCommentMarkdown(
+      "Before\n\\[\nE = mc^2\n\\]\nAfter",
+    );
+
+    expect(html).toContain("katex-display");
+    expect(html).not.toContain("\\[");
+  });
 });

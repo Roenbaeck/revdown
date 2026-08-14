@@ -17,6 +17,7 @@ import { visit } from "unist-util-visit";
 import type { DocumentFingerprint } from "../fingerprints";
 import { sha256Hex, encodeUtf8 } from "../fingerprints";
 import { highlightCode, type HighlightToken } from "./highlight";
+import { normalizeTexDisplayMathForParsing } from "./texMath";
 
 export type SupportedBlockKind =
   | "paragraph"
@@ -763,7 +764,10 @@ export async function parseMarkdownDocument(
     .use(remarkMath)
     .use(remarkRehype)
     .use(rehypeSanitize);
-  const mdast = processor.parse(source);
+  const initialMdast = processor.parse(source);
+  const parsingSource = normalizeTexDisplayMathForParsing(source, initialMdast);
+  const mdast =
+    parsingSource === source ? initialMdast : processor.parse(parsingSource);
   const records = collectSourceRecords(source, mdast);
   const safeHast = await processor.run(mdast);
   restoreSourceMetadata(safeHast, records.blocks, records.inlines);
