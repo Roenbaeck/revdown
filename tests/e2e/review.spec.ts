@@ -34,16 +34,16 @@ async function selectRenderedText(
 
 async function clickToolbarAction(
   page: import("@playwright/test").Page,
-  menuName: "Export" | "View",
+  menuName: "Export" | "View and settings",
   actionName: string | RegExp,
 ) {
   const action = page.getByRole("button", { name: actionName }).first();
   if (!(await action.isVisible())) {
-    await page
-      .locator(".toolbarMenu")
-      .filter({ has: page.locator("summary", { hasText: menuName }) })
-      .locator("summary")
-      .click();
+    const menu =
+      menuName === "Export"
+        ? page.locator(".toolbarExportMenu > summary")
+        : page.getByLabel("View and settings");
+    await menu.click();
   }
   await page.getByRole("button", { name: actionName }).first().click();
 }
@@ -92,7 +92,7 @@ test("renders the Markdown conformance fixture with working footnotes", async ({
 });
 
 test("persists themes and reading controls", async ({ page }) => {
-  await clickToolbarAction(page, "View", /Appearance/u);
+  await clickToolbarAction(page, "View and settings", /Appearance/u);
   const settings = page.getByRole("complementary", {
     name: "Reading appearance",
   });
@@ -202,9 +202,9 @@ test("opens a generated novel without blocking the document surface", async ({
     )
     .toBeGreaterThan(0);
 
-  await clickToolbarAction(page, "View", "Hide outline");
+  await clickToolbarAction(page, "View and settings", "Hide outline");
   await expect(outline).toBeHidden();
-  await clickToolbarAction(page, "View", "Show outline");
+  await clickToolbarAction(page, "View and settings", "Show outline");
   await expect(outline).toBeVisible();
 
   const minimap = page.getByRole("button", {
