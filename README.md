@@ -46,7 +46,19 @@ the application database.
 - Conservative re-anchoring after document drift
 - Clear reporting of ambiguous and unmatched feedback
 - Markdown file and clipboard export with customizable review instructions
+- Opt-in local MCP access for reading the active review and returning pending
+  per-comment outcomes
 - Local-first operation with no account or API key required
+
+## Agent Access
+
+The desktop app can share the active review with a locally running Codex client.
+Open the cog menu, choose **Agent access**, enable the localhost MCP server, and
+copy the generated configuration into Codex. Codex can read comment status and
+bounded anchor context without receiving the source path. It can also queue an
+`applied`, `skipped`, `ambiguous`, or `blocked` outcome for each comment. Reports
+appear beside comments for review; only the user can accept an applied report
+and resolve its comment. MCP never edits the source document or sidecar.
 
 ## Stack
 

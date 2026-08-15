@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AgentIntegrationPanel } from "../components/AgentIntegrationPanel";
 import { BrandGlyph } from "../components/BrandGlyph";
 import { DocumentMinimap } from "../components/DocumentMinimap";
 import { DocumentOutline } from "../components/DocumentOutline";
@@ -26,8 +27,17 @@ import {
   deleteComment,
   updateComment,
 } from "../lib/comments/model";
+import { buildAgentReviewSnapshot } from "../lib/agent/reviewSnapshot";
+import type { PendingAgentReport } from "../lib/agent/report";
 import { generateReviewMarkdown } from "../lib/export/review";
 import { parseMarkdownDocument } from "../lib/markdown/model";
+import {
+  codexMcpConfiguration,
+  createAgentAccessToken,
+  defaultMcpServerUrl,
+  loadAgentIntegrationSettings,
+  saveAgentIntegrationSettings,
+} from "../lib/settings/agent";
 import {
   loadExportInstruction,
   saveExportInstruction,
@@ -57,6 +67,7 @@ import {
   getNativeService,
   NativeServiceError,
   type NativeService,
+  type McpServerStatus,
   type OpenedDocument,
 } from "../services/native";
 import {
@@ -92,6 +103,15 @@ export function App() {
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [minimapOpen, setMinimapOpen] = useState(true);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [agentIntegrationOpen, setAgentIntegrationOpen] = useState(false);
+  const [agentSettings, setAgentSettings] = useState(() =>
+    loadAgentIntegrationSettings(window.localStorage),
+  );
+  const [mcpStatus, setMcpStatus] = useState<McpServerStatus | null>(null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [agentReports, setAgentReports] = useState<
+    ReadonlyMap<string, PendingAgentReport>
+  >(() => new Map());
   const [exportInstructionsOpen, setExportInstructionsOpen] = useState(false);
   const [exportInstruction, setExportInstruction] = useState(() =>
     loadExportInstruction(window.localStorage),
@@ -106,6 +126,10 @@ export function App() {
   const documentRegionRef = useRef<HTMLElement>(null);
   const saveCoordinatorRef = useRef(new SidecarSaveCoordinator());
   const closeAppearance = useCallback(() => setAppearanceOpen(false), []);
+  const closeAgentIntegration = useCallback(
+    () => setAgentIntegrationOpen(false),
+    [],
+  );
   const toggleWindowFullscreen = useCallback(() => {
     if (!native) return;
     void native.setWindowFullscreen(!windowFullscreen).catch(() => undefined);
@@ -114,6 +138,68 @@ export function App() {
   useEffect(() => {
     void getNativeService().then(setNative);
   }, []);
+  useEffect(() => {
+    saveAgentIntegrationSettings(window.localStorage, agentSettings);
+  }, [agentSettings]);
+  useEffect(() => {
+    if (!native) return;
+    let active = true;
+    setMcpError(null);
+    const updateServer = async () => {
+      try {
+        const status = agentSettings.enabled
+          ? await native.startMcpServer(agentSettings.token)
+          : await native.stopMcpServer();
+        if (active) setMcpStatus(status);
+      } catch (error) {
+        if (active) {
+          setMcpStatus(null);
+          setMcpError(describeError(error));
+        }
+      }
+    };
+    void updateServer();
+    return () => {
+      active = false;
+    };
+  }, [agentSettings.enabled, agentSettings.token, native]);
+  useEffect(() => {
+    if (!native) return;
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    void native
+      .observeMcpReports((batch) => {
+        if (!active) return;
+        setAgentReports((current) => {
+          const next = new Map(current);
+          for (const result of batch.results) {
+            next.set(result.commentId, {
+              ...result,
+              sourceSha256: batch.sourceSha256,
+              sidecarRevision: batch.sidecarRevision,
+            });
+          }
+          return next;
+        });
+      })
+      .then((stop) => {
+        if (active) unsubscribe = stop;
+        else stop();
+      })
+      .catch((error: unknown) => {
+        if (active) setMcpError(describeError(error));
+      });
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [native]);
+  useEffect(() => {
+    setAgentReports(new Map());
+  }, [activeSessionId, activeSourceSha256]);
+  useEffect(() => {
+    if (state.sourceChanged) setAgentReports(new Map());
+  }, [state.sourceChanged]);
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
@@ -542,6 +628,61 @@ export function App() {
     ],
   );
 
+  const agentSnapshot = useMemo(
+    () =>
+      state.document && state.model
+        ? buildAgentReviewSnapshot({
+            filename: state.document.filename,
+            sourceSize: state.document.revision.size,
+            model: state.model,
+            sidecar: state.sidecar,
+            sidecarRevision: state.sidecarRevision,
+            sidecarIssue: state.sidecarIssue,
+            sourceChanged: state.sourceChanged,
+            matches: state.matches,
+          })
+        : null,
+    [
+      state.document,
+      state.matches,
+      state.model,
+      state.sidecar,
+      state.sidecarIssue,
+      state.sidecarRevision,
+      state.sourceChanged,
+    ],
+  );
+
+  useEffect(() => {
+    if (!native) return;
+    let active = true;
+    void native
+      .publishMcpSnapshot(agentSettings.enabled ? agentSnapshot : null)
+      .catch((error: unknown) => {
+        if (active) setMcpError(describeError(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [agentSettings.enabled, agentSnapshot, native]);
+
+  const agentConfiguration = codexMcpConfiguration(
+    mcpStatus?.url ?? defaultMcpServerUrl,
+    agentSettings.token,
+  );
+
+  const copyAgentConfiguration = async () => {
+    try {
+      await navigator.clipboard.writeText(agentConfiguration);
+      dispatch({
+        type: "set_message",
+        message: "Codex MCP configuration copied to the clipboard.",
+      });
+    } catch {
+      setMcpError("Clipboard access was unavailable.");
+    }
+  };
+
   const copyReview = async () => {
     if (!exportText) return;
     try {
@@ -573,7 +714,33 @@ export function App() {
     }
   };
 
-  const comments = state.sidecar?.comments ?? [];
+  const comments = useMemo(
+    () => state.sidecar?.comments ?? [],
+    [state.sidecar],
+  );
+  const visibleAgentReports = useMemo(() => {
+    const visible = new Map<string, PendingAgentReport>();
+    if (!state.model || state.sourceChanged) return visible;
+    for (const comment of comments) {
+      const report = agentReports.get(comment.id);
+      if (
+        report &&
+        comment.status === "open" &&
+        report.sourceSha256 === state.model.fingerprint.sha256 &&
+        report.commentUpdatedAt === comment.updatedAt
+      ) {
+        visible.set(comment.id, report);
+      }
+    }
+    return visible;
+  }, [agentReports, comments, state.model, state.sourceChanged]);
+  const dismissAgentReport = (commentId: string) => {
+    setAgentReports((current) => {
+      const next = new Map(current);
+      next.delete(commentId);
+      return next;
+    });
+  };
   const resolvedTheme = resolveTheme(readerSettings.theme, systemDark);
   const ready =
     state.phase === "ready" && state.model && state.document && native;
@@ -594,16 +761,26 @@ export function App() {
         outlineOpen={outlineOpen}
         minimapOpen={minimapOpen}
         appearanceOpen={appearanceOpen}
+        agentIntegrationOpen={agentIntegrationOpen}
         windowFullscreen={windowFullscreen}
         onOpen={() => void openDocument()}
         onEditExportInstructions={() => {
           setAppearanceOpen(false);
+          setAgentIntegrationOpen(false);
           setExportInstructionsOpen(true);
         }}
         onTogglePanel={() => dispatch({ type: "toggle_panel" })}
         onToggleOutline={() => setOutlineOpen((open) => !open)}
         onToggleMinimap={() => setMinimapOpen((open) => !open)}
-        onToggleAppearance={() => setAppearanceOpen((open) => !open)}
+        onToggleAppearance={() => {
+          setAgentIntegrationOpen(false);
+          setAppearanceOpen((open) => !open);
+        }}
+        onToggleAgentIntegration={() => {
+          setAppearanceOpen(false);
+          setExportInstructionsOpen(false);
+          setAgentIntegrationOpen((open) => !open);
+        }}
         onToggleFullscreen={toggleWindowFullscreen}
         onFilter={(filter: CommentFilter) =>
           dispatch({ type: "set_filter", filter })
@@ -620,6 +797,27 @@ export function App() {
           settings={readerSettings}
           onChange={setReaderSettings}
           onClose={closeAppearance}
+        />
+      )}
+
+      {agentIntegrationOpen && (
+        <AgentIntegrationPanel
+          settings={agentSettings}
+          status={mcpStatus}
+          error={mcpError}
+          sharedFilename={state.document?.filename}
+          configuration={agentConfiguration}
+          onEnabledChange={(enabled) =>
+            setAgentSettings((settings) => ({ ...settings, enabled }))
+          }
+          onCopyConfiguration={() => void copyAgentConfiguration()}
+          onRotateToken={() =>
+            setAgentSettings((settings) => ({
+              ...settings,
+              token: createAgentAccessToken(),
+            }))
+          }
+          onClose={closeAgentIntegration}
         />
       )}
 
@@ -750,6 +948,7 @@ export function App() {
             filter={state.filter}
             selectedId={state.selectedCommentId}
             readOnly={!mutationsAllowed}
+            agentReports={visibleAgentReports}
             readOnlyMessage={
               state.sourceChanged
                 ? "Comments are read-only until the changed source is reloaded."
@@ -769,6 +968,13 @@ export function App() {
             onDelete={(id) =>
               mutateComment((sidecar) => deleteComment(sidecar, id))
             }
+            onAcceptAgentReport={(comment) => {
+              mutateComment((sidecar) =>
+                updateComment(sidecar, comment.id, { status: "resolved" }),
+              );
+              dismissAgentReport(comment.id);
+            }}
+            onDismissAgentReport={dismissAgentReport}
             onConfirmCandidate={(
               comment: ReviewComment,
               candidate: AnchorCandidate,

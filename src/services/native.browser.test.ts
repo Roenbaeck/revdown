@@ -16,4 +16,18 @@ describe("BrowserNativeService source revisions", () => {
       native.sourceHasChanged(opened.sessionId, "0".repeat(64)),
     ).resolves.toBe(true);
   });
+
+  it("reports local MCP transport as unavailable in a browser", async () => {
+    const native = new BrowserNativeService();
+
+    await expect(native.getMcpServerStatus()).resolves.toEqual({
+      supported: false,
+      running: false,
+      url: "http://127.0.0.1:37419/mcp",
+    });
+    await expect(native.publishMcpSnapshot(null)).resolves.toBeUndefined();
+    await expect(native.observeMcpReports(vi.fn())).resolves.toEqual(
+      expect.any(Function),
+    );
+  });
 });

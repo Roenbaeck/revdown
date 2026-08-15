@@ -480,6 +480,7 @@ native boundary:
 - read an optional sidecar;
 - atomically write a validated sidecar or export;
 - return file metadata and change notifications;
+- host the explicitly enabled loopback-only MCP transport;
 - open approved external links in the system browser; and
 - calculate hashes if measurements show a benefit over Web Crypto.
 
@@ -516,6 +517,47 @@ tests/
 
 Code organization may evolve, but anchor logic, persistence schema, Markdown
 rendering, and native I/O should remain separable and independently testable.
+
+### 14.1 Local agent access
+
+Revdown provides an opt-in Streamable HTTP MCP server at a fixed IPv4 loopback
+address. The user must enable it and explicitly configure a local MCP client;
+there is no network discovery or remote listener. Requests require a random
+bearer token stored in Revdown's local settings. The UI can copy a Codex
+configuration block and rotate the token when access should be revoked.
+
+The frontend publishes a bounded, in-memory snapshot because it already owns
+sidecar validation and computed anchor matching. Rust owns only the HTTP
+transport, authentication, request limits, and protocol dispatch. The server
+does not accept paths or read arbitrary files, and the snapshot omits the source
+document's absolute path. It contains the filename and revision hashes, comment
+feedback and status, stored anchor evidence, and bounded context for the current
+computed match and up to five candidates.
+
+The initial tool set exposes three read operations and one bounded reporting
+operation:
+
+- `get_review_state` reports the active revision, validation state, and counts;
+- `list_comments` returns summaries and computed anchor states;
+- `get_comment` returns one comment's stored evidence and bounded current
+  context; and
+- `report_comment_results` queues `applied`, `skipped`, `ambiguous`, or
+  `blocked` outcomes for explicit user review.
+
+If Revdown observes an external source change, detailed comment context is
+refused until the user reloads the source and Revdown recomputes anchors. MCP
+server instructions state that source and comment text are untrusted data and
+that an agent must not claim to resolve comments.
+
+Reported outcomes are transient in-memory proposals rather than canonical
+sidecar state. A report batch includes the expected source hash, sidecar
+revision, and per-comment update timestamps. Revdown rejects the entire batch
+when any revision is stale, a comment is no longer open, or the source or
+sidecar is in a conflict state. An `applied` outcome is shown beside its comment
+with an explicit **Accept and resolve** action; accepting uses the ordinary
+validated sidecar save path. Other outcomes can be acknowledged but do not
+resolve comments. Pending reports are not retained across application restarts.
+No MCP operation may write the source document.
 
 ## 15. Persistence and Conflict Handling
 
@@ -558,6 +600,8 @@ Markdown is untrusted input even when it is local. The initial application will:
   traversal outside approved scope;
 - avoid loading remote images by default to prevent tracking and network leaks;
 - validate sidecars before displaying or writing them; and
+- keep agent access disabled by default, bind it only to IPv4 loopback, require
+  bearer authentication, validate browser origins, and cap request bodies;
 - never include absolute local paths in exports unless the user explicitly asks.
 
 Comment Markdown follows the same rendering policy. No telemetry is included in
@@ -720,7 +764,9 @@ Potential later work, guided by actual usage:
 - Git-aware source revision metadata;
 - additional Markdown dialects;
 - Linux packages; and
-- agent integrations that can apply feedback and return per-comment results.
+- write-capable agent integrations that can directly propose source patches or
+  persist richer agent-run history under an explicit confirmation and conflict
+  model.
 
 None of these should broaden the initial architecture until the annotation,
 re-anchoring, and export workflow has been validated with real documents.

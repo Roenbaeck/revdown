@@ -1,5 +1,6 @@
 mod commands;
 mod fullscreen;
+mod mcp;
 
 use commands::{
     export_review, load_sidecar, open_document, open_external, queue_associated_document,
@@ -8,6 +9,9 @@ use commands::{
 };
 use fullscreen::{
     handle_window_event, set_window_fullscreen, window_fullscreen_state, FullscreenState,
+};
+use mcp::{
+    get_mcp_server_status, publish_mcp_snapshot, start_mcp_server, stop_mcp_server, McpServerState,
 };
 use std::{path::PathBuf, sync::Arc};
 use tauri::{Emitter, Manager};
@@ -68,6 +72,7 @@ pub fn run() {
     let app = builder
         .manage(AppState::default())
         .manage(Arc::new(FullscreenState::default()))
+        .manage(Arc::new(McpServerState::default()))
         .on_window_event(handle_window_event)
         .invoke_handler(tauri::generate_handler![
             open_document,
@@ -82,7 +87,11 @@ pub fn run() {
             open_external,
             take_pending_document,
             set_window_fullscreen,
-            window_fullscreen_state
+            window_fullscreen_state,
+            start_mcp_server,
+            stop_mcp_server,
+            get_mcp_server_status,
+            publish_mcp_snapshot
         ])
         .build(tauri::generate_context!())
         .expect("error while building Revdown");

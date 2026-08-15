@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { CommentFilter } from "../app/state";
+import type { PendingAgentReport } from "../lib/agent/report";
 import type { AnchorCandidate, AnchorMatch } from "../lib/anchors/match";
 import type { ReviewComment } from "../lib/schema/sidecar";
 import { CommentBody } from "./CommentBody";
@@ -11,10 +12,13 @@ type ReviewPanelProps = {
   selectedId: string | null;
   readOnly: boolean;
   readOnlyMessage?: string;
+  agentReports: ReadonlyMap<string, PendingAgentReport>;
   onSelect: (id: string) => void;
   onEdit: (id: string, body: string) => void;
   onToggleResolved: (comment: ReviewComment) => void;
   onDelete: (id: string) => void;
+  onAcceptAgentReport: (comment: ReviewComment) => void;
+  onDismissAgentReport: (commentId: string) => void;
   onConfirmCandidate: (
     comment: ReviewComment,
     candidate: AnchorCandidate,
@@ -29,6 +33,7 @@ function CommentCard(
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(comment.body);
+  const agentReport = props.agentReports.get(comment.id);
   return (
     <article
       className={`commentCard ${comment.id === props.selectedId ? "commentCardSelected" : ""}`}
@@ -77,6 +82,42 @@ function CommentCard(
           body={comment.body}
           onOpenExternal={props.onOpenExternal}
         />
+      )}
+      {agentReport && (
+        <section className="agentReport" aria-label="Agent report">
+          <div className="agentReportHeading">
+            <span>Agent report</span>
+            <strong>{agentReport.outcome}</strong>
+          </div>
+          {agentReport.note && <p>{agentReport.note}</p>}
+          <div className="cardActions">
+            {agentReport.outcome === "applied" ? (
+              <>
+                <button
+                  className="primaryButton"
+                  type="button"
+                  disabled={props.readOnly}
+                  onClick={() => props.onAcceptAgentReport(comment)}
+                >
+                  Accept and resolve
+                </button>
+                <button
+                  type="button"
+                  onClick={() => props.onDismissAgentReport(comment.id)}
+                >
+                  Keep open
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => props.onDismissAgentReport(comment.id)}
+              >
+                Acknowledge
+              </button>
+            )}
+          </div>
+        </section>
       )}
       {match.state === "ambiguous" && match.candidates.length > 0 && (
         <details className="candidateList">

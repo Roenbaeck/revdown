@@ -385,6 +385,17 @@ textarea {
   display: none;
 }
 
+.toolbarViewMenu > summary {
+  justify-content: center;
+  width: 38px;
+  padding: 0;
+}
+
+.toolbarViewMenu > summary svg {
+  width: 18px;
+  height: 18px;
+}
+
 .toolbarMenu > summary:hover {
   border-color: #7c867c;
   background: var(--control-hover);
@@ -975,6 +986,42 @@ textarea {
   font-size: 1rem;
 }
 
+.agentReport {
+  margin-top: 0.8rem;
+  border: 1px solid #9fc1ce;
+  border-radius: 8px;
+  padding: 0.65rem;
+  background: #edf7fa;
+}
+
+.agentReportHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #285a6d;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agentReportHeading strong {
+  border-radius: 99px;
+  padding: 0.15rem 0.4rem;
+  background: #d5eaf1;
+  font-size: 0.68rem;
+}
+
+.agentReport p {
+  margin: 0.55rem 0 0;
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .cardActions,
 .composerActions {
   display: flex;
@@ -1172,6 +1219,110 @@ textarea {
   justify-self: end;
 }
 
+.agentIntegrationPanel {
+  grid-template-columns: 1fr;
+  width: min(560px, calc(100vw - 1.6rem));
+  max-height: calc(100dvh - 5.2rem);
+  overflow: auto;
+}
+
+.agentIntegrationPanel > * {
+  grid-column: 1;
+}
+
+.agentIntegrationIntro,
+.agentConfiguration p,
+.agentSecurityNote,
+.agentIntegrationError {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.agentIntegrationToggle {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.55rem !important;
+  min-height: 40px;
+  color: var(--ink) !important;
+  font-size: 0.92rem !important;
+}
+
+.agentIntegrationStatus {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.agentIntegrationStatus > div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.6rem;
+  background: var(--control-surface);
+}
+
+.agentIntegrationStatus dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.agentIntegrationStatus dd {
+  margin: 0.25rem 0 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentIntegrationError {
+  color: var(--danger);
+}
+
+.agentConfiguration {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.agentConfiguration h3 {
+  margin: 0;
+  color: var(--heading-ink);
+  font-size: 0.94rem;
+}
+
+.agentConfiguration code,
+.agentSecurityNote code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.agentConfiguration pre {
+  max-width: 100%;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.7rem;
+  color: var(--ink);
+  background: var(--code-surface);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.agentIntegrationActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .selectionQuote {
   max-height: 3.2rem;
   margin: 0 0 0.7rem;
@@ -1249,6 +1400,19 @@ textarea {
 :root[data-theme="dark"] .inlineWarning {
   color: #f0d58f;
   background: #3e3520;
+}
+
+:root[data-theme="dark"] .agentReport {
+  border-color: #416c7b;
+  background: #213b45;
+}
+
+:root[data-theme="dark"] .agentReportHeading {
+  color: #b9dce8;
+}
+
+:root[data-theme="dark"] .agentReportHeading strong {
+  background: #315866;
 }
 
 :root[data-theme="dark"] .statusBadge {
@@ -1386,6 +1550,10 @@ textarea {
   .readerSettingsPanel label,
   .settingsReset {
     grid-column: 1;
+  }
+
+  .agentIntegrationStatus {
+    grid-template-columns: 1fr;
   }
 }
 

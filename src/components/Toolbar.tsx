@@ -9,6 +9,7 @@ type ToolbarProps = {
   outlineOpen: boolean;
   minimapOpen: boolean;
   appearanceOpen: boolean;
+  agentIntegrationOpen: boolean;
   windowFullscreen: boolean;
   includeResolved: boolean;
   saveStatus: SaveStatus;
@@ -20,6 +21,7 @@ type ToolbarProps = {
   onToggleOutline: () => void;
   onToggleMinimap: () => void;
   onToggleAppearance: () => void;
+  onToggleAgentIntegration: () => void;
   onToggleFullscreen: () => void;
   onFilter: (filter: CommentFilter) => void;
   onIncludeResolved: (value: boolean) => void;
@@ -30,6 +32,23 @@ type ToolbarProps = {
 function closeToolbarMenu(event: MouseEvent<HTMLElement>): void {
   const menu = event.currentTarget.closest("details");
   if (menu instanceof HTMLDetailsElement) menu.open = false;
+}
+
+function SettingsGlyph() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.08A1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.08A1.65 1.65 0 0 0 20.91 10H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15Z" />
+    </svg>
+  );
 }
 
 export function Toolbar(props: ToolbarProps) {
@@ -111,6 +130,14 @@ export function Toolbar(props: ToolbarProps) {
       <div className="toolbarViewActions">
         <button
           type="button"
+          onClick={props.onToggleAgentIntegration}
+          aria-expanded={props.agentIntegrationOpen}
+          aria-controls="agent-integration"
+        >
+          Agent access
+        </button>
+        <button
+          type="button"
           onClick={props.onToggleAppearance}
           aria-expanded={props.appearanceOpen}
           aria-controls="reader-settings"
@@ -190,8 +217,21 @@ export function Toolbar(props: ToolbarProps) {
         </div>
       </details>
       <details className="toolbarMenu toolbarViewMenu" name="toolbar-menu">
-        <summary>View</summary>
+        <summary aria-label="View and settings" title="View and settings">
+          <SettingsGlyph />
+        </summary>
         <div className="toolbarMenuPanel">
+          <button
+            type="button"
+            onClick={(event) => {
+              props.onToggleAgentIntegration();
+              closeToolbarMenu(event);
+            }}
+            aria-expanded={props.agentIntegrationOpen}
+            aria-controls="agent-integration"
+          >
+            Agent access…
+          </button>
           <button
             type="button"
             onClick={(event) => {

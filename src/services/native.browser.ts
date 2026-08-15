@@ -1,12 +1,15 @@
 import type {
   ExportResult,
   LoadedSidecar,
+  McpServerStatus,
   NativeService,
   OpenedDocument,
   SaveResult,
   SourceRevision,
   WindowAppearance,
 } from "./native";
+import type { AgentReviewSnapshot } from "../lib/agent/reviewSnapshot";
+import type { McpReportBatch } from "../lib/agent/report";
 import { NativeServiceError } from "./native";
 import {
   decodeUtf8,
@@ -212,6 +215,34 @@ export class BrowserNativeService implements NativeService {
     return Promise.resolve(() =>
       document.removeEventListener("fullscreenchange", update),
     );
+  }
+
+  startMcpServer(): Promise<McpServerStatus> {
+    return Promise.resolve({
+      supported: false,
+      running: false,
+      url: "http://127.0.0.1:37419/mcp",
+    });
+  }
+
+  stopMcpServer(): Promise<McpServerStatus> {
+    return this.startMcpServer();
+  }
+
+  getMcpServerStatus(): Promise<McpServerStatus> {
+    return this.startMcpServer();
+  }
+
+  publishMcpSnapshot(snapshot: AgentReviewSnapshot | null): Promise<void> {
+    void snapshot;
+    return Promise.resolve();
+  }
+
+  observeMcpReports(
+    listener: (batch: McpReportBatch) => void,
+  ): Promise<() => void> {
+    void listener;
+    return Promise.resolve(() => undefined);
   }
 
   private session(id: string): BrowserSession {

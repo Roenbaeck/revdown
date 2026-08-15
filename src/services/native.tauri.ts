@@ -3,11 +3,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   ExportResult,
   LoadedSidecar,
+  McpServerStatus,
   NativeService,
   OpenedDocument,
   SaveResult,
   WindowAppearance,
 } from "./native";
+import type { AgentReviewSnapshot } from "../lib/agent/reviewSnapshot";
+import { parseMcpReportBatch, type McpReportBatch } from "../lib/agent/report";
 import { NativeServiceError } from "./native";
 
 type NativeErrorShape = { code?: unknown; message?: unknown };
@@ -144,5 +147,33 @@ export class TauriNativeService implements NativeService {
     );
     listener(this.immersiveFullscreen);
     return unlisten;
+  }
+
+  startMcpServer(token: string): Promise<McpServerStatus> {
+    return command("start_mcp_server", { token });
+  }
+
+  stopMcpServer(): Promise<McpServerStatus> {
+    return command("stop_mcp_server");
+  }
+
+  getMcpServerStatus(): Promise<McpServerStatus> {
+    return command("get_mcp_server_status");
+  }
+
+  publishMcpSnapshot(snapshot: AgentReviewSnapshot | null): Promise<void> {
+    return command("publish_mcp_snapshot", { snapshot });
+  }
+
+  observeMcpReports(
+    listener: (batch: McpReportBatch) => void,
+  ): Promise<() => void> {
+    return getCurrentWindow().listen<unknown>(
+      "revdown-mcp-report",
+      ({ payload }) => {
+        const batch = parseMcpReportBatch(payload);
+        if (batch) listener(batch);
+      },
+    );
   }
 }

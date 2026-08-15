@@ -1,3 +1,6 @@
+import type { AgentReviewSnapshot } from "../lib/agent/reviewSnapshot";
+import type { McpReportBatch } from "../lib/agent/report";
+
 export type SourceRevision = {
   sha256: string;
   normalizedSha256: string;
@@ -30,6 +33,12 @@ export type WindowAppearance = {
   backgroundColor: string;
 };
 
+export type McpServerStatus = {
+  supported: boolean;
+  running: boolean;
+  url: string;
+};
+
 export type NativeService = {
   openDocument(): Promise<OpenedDocument | null>;
   takePendingDocument(): Promise<OpenedDocument | null>;
@@ -60,6 +69,13 @@ export type NativeService = {
   setWindowFullscreen(fullscreen: boolean): Promise<void>;
   observeWindowFullscreen(
     listener: (fullscreen: boolean) => void,
+  ): Promise<() => void>;
+  startMcpServer(token: string): Promise<McpServerStatus>;
+  stopMcpServer(): Promise<McpServerStatus>;
+  getMcpServerStatus(): Promise<McpServerStatus>;
+  publishMcpSnapshot(snapshot: AgentReviewSnapshot | null): Promise<void>;
+  observeMcpReports(
+    listener: (batch: McpReportBatch) => void,
   ): Promise<() => void>;
 };
 
