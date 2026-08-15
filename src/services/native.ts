@@ -1,5 +1,6 @@
 export type SourceRevision = {
   sha256: string;
+  normalizedSha256: string;
   size: number;
   modifiedMs: number;
 };

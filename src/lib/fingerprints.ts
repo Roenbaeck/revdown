@@ -20,7 +20,12 @@ export function normalizeSourceText(value: string): string {
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const input = new Uint8Array(bytes).buffer;
+  const input =
+    bytes.buffer instanceof ArrayBuffer &&
+    bytes.byteOffset === 0 &&
+    bytes.byteLength === bytes.buffer.byteLength
+      ? bytes.buffer
+      : bytes.slice().buffer;
   const digest = await crypto.subtle.digest("SHA-256", input);
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),

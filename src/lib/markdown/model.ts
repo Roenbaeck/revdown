@@ -94,6 +94,45 @@ type RenderedMapping = {
   inlineRanges: RenderedInlineRange[];
 };
 
+const LARGE_DOCUMENT_YIELD_THRESHOLD = 512 * 1024;
+const BLOCK_HASH_BATCH_SIZE = 128;
+
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function hashSourceBlocks(
+  source: string,
+  blocks: readonly PendingBlock[],
+): Promise<SourceBlock[]> {
+  const result: SourceBlock[] = [];
+  let lastYield = performance.now();
+
+  for (let start = 0; start < blocks.length; start += BLOCK_HASH_BATCH_SIZE) {
+    const batch = blocks.slice(start, start + BLOCK_HASH_BATCH_SIZE);
+    result.push(
+      ...(await Promise.all(
+        batch.map(
+          async (block): Promise<SourceBlock> => ({
+            ...block,
+            sourceSha256: await sha256Hex(
+              encodeUtf8(source.slice(block.start, block.end)),
+            ),
+          }),
+        ),
+      )),
+    );
+    if (
+      start + BLOCK_HASH_BATCH_SIZE < blocks.length &&
+      performance.now() - lastYield >= 16
+    ) {
+      await yieldToMainThread();
+      lastYield = performance.now();
+    }
+  }
+  return result;
+}
+
 function offsets(node: Positioned): { start: number; end: number } | undefined {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
@@ -970,8 +1009,14 @@ export async function parseMarkdownDocument(
   const parsingSource = normalizeTexDisplayMathForParsing(source, initialMdast);
   const mdast =
     parsingSource === source ? initialMdast : processor.parse(parsingSource);
+  if (source.length >= LARGE_DOCUMENT_YIELD_THRESHOLD) {
+    await yieldToMainThread();
+  }
   const records = collectSourceRecords(source, mdast);
   const safeHast = await processor.run(mdast);
+  if (source.length >= LARGE_DOCUMENT_YIELD_THRESHOLD) {
+    await yieldToMainThread();
+  }
   restoreSourceMetadata(safeHast, records.blocks, records.inlines);
   const withMath = (await unified().use(rehypeKatex).run(safeHast)) as HastRoot;
   restoreRenderedMathMetadata(withMath, records.blocks, records.inlines);
@@ -979,16 +1024,7 @@ export async function parseMarkdownDocument(
   decorateTextNodes(withMath, source);
   secureLinksAndImages(withMath);
 
-  const blocksWithHashes = await Promise.all(
-    records.blocks.map(
-      async (block): Promise<SourceBlock> => ({
-        ...block,
-        sourceSha256: await sha256Hex(
-          encodeUtf8(source.slice(block.start, block.end)),
-        ),
-      }),
-    ),
-  );
+  const blocksWithHashes = await hashSourceBlocks(source, records.blocks);
   const blocksInSourceOrder = blocksWithHashes.sort(
     (a, b) => a.start - b.start || b.end - a.end,
   );

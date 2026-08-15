@@ -1,6 +1,6 @@
 [package]
 name = "revdown"
-version = "0.1.0"
+version = "0.1.1"
 description = "Review Markdown without changing the source document"
 authors = ["Revdown contributors"]
 license = "MIT"

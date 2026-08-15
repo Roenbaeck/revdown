@@ -5,7 +5,12 @@ const documentB = {
   sessionId: "B",
   filename: "b.md",
   content: "B",
-  revision: { sha256: "b".repeat(64), size: 1, modifiedMs: 0 },
+  revision: {
+    sha256: "b".repeat(64),
+    normalizedSha256: "b".repeat(64),
+    size: 1,
+    modifiedMs: 0,
+  },
 };
 
 describe("app reducer document sessions", () => {

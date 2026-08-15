@@ -60,6 +60,7 @@ impl CommandError {
 #[serde(rename_all = "camelCase")]
 pub struct SourceRevision {
     sha256: String,
+    normalized_sha256: String,
     size: u64,
     modified_ms: u128,
 }
@@ -100,26 +101,61 @@ fn hash_bytes(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+fn hash_normalized_source(bytes: &[u8]) -> String {
+    const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
+    let bytes = bytes.strip_prefix(UTF8_BOM).unwrap_or(bytes);
+    let mut hasher = Sha256::new();
+    let mut segment_start = 0;
+    let mut cursor = 0;
+
+    while let Some(relative_index) = bytes[cursor..].iter().position(|byte| *byte == b'\r') {
+        let carriage_return = cursor + relative_index;
+        hasher.update(&bytes[segment_start..carriage_return]);
+        hasher.update(b"\n");
+        cursor = carriage_return + 1;
+        if bytes.get(cursor) == Some(&b'\n') {
+            cursor += 1;
+        }
+        segment_start = cursor;
+    }
+    hasher.update(&bytes[segment_start..]);
+    hex::encode(hasher.finalize())
+}
+
 fn read_source(path: &Path) -> CommandResult<(String, SourceRevision)> {
     let mut file = File::open(path).map_err(CommandError::io)?;
+    let initial_metadata = file.metadata().map_err(CommandError::io)?;
     let mut bytes = Vec::new();
+    let initial_capacity = usize::try_from(initial_metadata.len()).map_err(|_| {
+        CommandError::new(
+            "file_too_large",
+            "The Markdown file is too large for this platform.",
+        )
+    })?;
+    bytes.try_reserve_exact(initial_capacity).map_err(|_| {
+        CommandError::new(
+            "file_too_large",
+            "There is not enough memory to open this Markdown file.",
+        )
+    })?;
     file.read_to_end(&mut bytes).map_err(CommandError::io)?;
     let metadata = file.metadata().map_err(CommandError::io)?;
-    let content = String::from_utf8(bytes.clone()).map_err(|_| {
+    let content = String::from_utf8(bytes).map_err(|_| {
         CommandError::new(
             "invalid_utf8",
             "Revdown can open only valid UTF-8 Markdown files.",
         )
     })?;
-    let modified_ms = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |duration| duration.as_millis());
+    let source_bytes = content.as_bytes();
     let revision = SourceRevision {
-        sha256: hash_bytes(&bytes),
-        size: metadata.len(),
-        modified_ms,
+        sha256: hash_bytes(source_bytes),
+        normalized_sha256: hash_normalized_source(source_bytes),
+        size: u64::try_from(source_bytes.len()).unwrap_or(metadata.len()),
+        modified_ms: metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |duration| duration.as_millis()),
     };
     Ok((content, revision))
 }
@@ -800,6 +836,34 @@ mod tests {
             current_revision(&sidecar_path(&source_path).unwrap()).unwrap(),
             Some(result.revision)
         );
+    }
+
+    #[test]
+    fn source_reads_preserve_bytes_and_return_exact_and_normalized_hashes() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        let source = b"\xef\xbb\xbf# Caf\xc3\xa9\r\n\rLast line\r\n";
+        fs::write(&source_path, source).unwrap();
+
+        let (content, revision) = read_source(&source_path).unwrap();
+
+        assert_eq!(content.as_bytes(), source);
+        assert_eq!(revision.sha256, hash_bytes(source));
+        assert_eq!(
+            revision.normalized_sha256,
+            hash_bytes(b"# Caf\xc3\xa9\n\nLast line\n")
+        );
+        assert_eq!(revision.size, source.len() as u64);
+        assert_eq!(fs::read(source_path).unwrap(), source);
+    }
+
+    #[test]
+    fn source_reads_reject_invalid_utf8() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        fs::write(&source_path, b"valid prefix\xff").unwrap();
+
+        assert_eq!(read_source(&source_path).unwrap_err().code, "invalid_utf8");
     }
 
     #[test]

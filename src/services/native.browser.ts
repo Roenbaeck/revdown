@@ -8,7 +8,12 @@ import type {
   WindowAppearance,
 } from "./native";
 import { NativeServiceError } from "./native";
-import { encodeUtf8, sha256Hex } from "../lib/fingerprints";
+import {
+  decodeUtf8,
+  encodeUtf8,
+  fingerprintBytes,
+  sha256Hex,
+} from "../lib/fingerprints";
 
 type BrowserSession = {
   document: OpenedDocument;
@@ -38,7 +43,11 @@ async function revisionFor(
   modifiedMs = Date.now(),
 ): Promise<SourceRevision> {
   const bytes = encodeUtf8(content);
-  return { sha256: await sha256Hex(bytes), size: bytes.byteLength, modifiedMs };
+  return {
+    ...(await fingerprintBytes(bytes)),
+    size: bytes.byteLength,
+    modifiedMs,
+  };
 }
 
 function chooseMarkdownFile(): Promise<File | null> {
@@ -60,23 +69,31 @@ export class BrowserNativeService implements NativeService {
     let filename: string;
     let content: string;
     let modifiedMs: number;
+    let revision: SourceRevision;
     if (new URLSearchParams(window.location.search).has("demo")) {
       filename = "welcome.md";
       content = demoSource;
       modifiedMs = 0;
+      revision = await revisionFor(content, modifiedMs);
     } else {
       const file = await chooseMarkdownFile();
       if (!file) return null;
       filename = file.name;
-      content = await file.text();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      content = decodeUtf8(bytes);
       modifiedMs = file.lastModified;
+      revision = {
+        ...(await fingerprintBytes(bytes)),
+        size: bytes.byteLength,
+        modifiedMs,
+      };
     }
     const sessionId = crypto.randomUUID();
     const document: OpenedDocument = {
       sessionId,
       filename,
       content,
-      revision: await revisionFor(content, modifiedMs),
+      revision,
     };
     this.sessions.set(sessionId, {
       document,

@@ -26,7 +26,6 @@ import {
   deleteComment,
   updateComment,
 } from "../lib/comments/model";
-import { fingerprintText } from "../lib/fingerprints";
 import { generateReviewMarkdown } from "../lib/export/review";
 import { parseMarkdownDocument } from "../lib/markdown/model";
 import {
@@ -87,6 +86,7 @@ export function App() {
   const activeSessionId = state.document?.sessionId;
   const activeSourceSha256 = state.document?.revision.sha256;
   const [native, setNative] = useState<NativeService | null>(null);
+  const documentLoadIdRef = useRef(0);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(true);
@@ -179,27 +179,32 @@ export function App() {
       },
     ) => {
       if (!native) return;
-      const fingerprint = await fingerprintText(opened.content);
-      if (fingerprint.sha256 !== opened.revision.sha256) {
-        throw new Error(
-          "The native and frontend source fingerprints did not agree.",
-        );
-      }
-      const model = await parseMarkdownDocument(opened.content, fingerprint);
+      const loadId = ++documentLoadIdRef.current;
+      const fingerprint = {
+        sha256: opened.revision.sha256,
+        normalizedSha256: opened.revision.normalizedSha256,
+      };
+      const [model, loadedSidecar] = await Promise.all([
+        parseMarkdownDocument(opened.content, fingerprint),
+        options?.sidecar === undefined
+          ? native.loadSidecar(opened.sessionId)
+          : Promise.resolve(null),
+      ]);
+      if (loadId !== documentLoadIdRef.current) return;
       let sidecar = options?.sidecar;
       let sidecarRevision = options?.sidecarRevision;
       let issue = options?.issue ?? null;
       if (sidecar === undefined) {
-        const loaded = await native.loadSidecar(opened.sessionId);
-        sidecarRevision = loaded.revision;
-        if (loaded.contents === null) {
+        if (!loadedSidecar) return;
+        sidecarRevision = loadedSidecar.revision;
+        if (loadedSidecar.contents === null) {
           sidecar = createEmptySidecar({
             filename: opened.filename,
             sha256: fingerprint.sha256,
             normalizedSha256: fingerprint.normalizedSha256,
           });
         } else {
-          const parsed = parseSidecarJson(loaded.contents);
+          const parsed = parseSidecarJson(loadedSidecar.contents);
           if (
             parsed.kind === "valid" &&
             parsed.sidecar.source.filename === opened.filename

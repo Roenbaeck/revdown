@@ -4,10 +4,11 @@ import {
   buildLargeMarkdownFixture,
   LARGE_MARKDOWN_EXPECTED_BLOCKS,
 } from "../../../tests/fixtures/large-markdown";
-import { fingerprintText } from "../fingerprints";
+import { encodeUtf8, fingerprintText } from "../fingerprints";
 import { buildBoundaryMap, parseMarkdownDocument } from "./model";
 
 const INITIAL_READABILITY_BUDGET_MS = 2_000;
+const ONE_MIB_BYTES = 1024 * 1024;
 const isCi = Boolean(process.env.CI);
 
 describe("Markdown source model", () => {
@@ -181,11 +182,18 @@ describe("Markdown source model", () => {
   describe.skipIf(isCi)("local performance budgets", () => {
     it("keeps a 1 MiB document within the initial readability budget", async () => {
       const heading = "# Large fixture\n\n";
-      const source =
-        heading +
-        "A source-backed paragraph with Unicode 😀 and stable mapping. ".repeat(
-          18_000,
-        );
+      const unit =
+        "A source-backed paragraph with Unicode 😀 and stable mapping. ";
+      const repeats = Math.ceil(
+        (ONE_MIB_BYTES - encodeUtf8(heading).byteLength) /
+          encodeUtf8(unit).byteLength,
+      );
+      const source = heading + unit.repeat(repeats);
+      const sourceBytes = encodeUtf8(source).byteLength;
+      expect(sourceBytes).toBeGreaterThanOrEqual(ONE_MIB_BYTES);
+      expect(sourceBytes).toBeLessThan(
+        ONE_MIB_BYTES + encodeUtf8(unit).byteLength,
+      );
       const started = performance.now();
       const model = await parseMarkdownDocument(
         source,

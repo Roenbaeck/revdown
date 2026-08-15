@@ -1,7 +1,7 @@
 # Revdown Application Plan
 
 Status: MVP implemented; pre-release validation in progress
-Last revised: 2026-08-13
+Last revised: 2026-08-15
 
 ## 1. Product Summary
 
@@ -581,6 +581,19 @@ Large-document fixtures and timing instrumentation will be checked in. If the
 targets are missed, profiling precedes architectural changes. Wall-clock
 budgets are reference-machine checks run locally; shared CI runners validate
 the corresponding behavior without using elapsed time as a release gate.
+
+Performance investigation starts with the 1 MiB readability fixture. Larger
+size-based fixtures are introduced only when repeated 1 MiB measurements become
+too short or noisy to expose meaningful differences. Separate fixtures may
+still exercise block count, comments, syntax, or other complexity dimensions.
+
+The first large-document optimization keeps the full-document model but avoids
+redundant work: Rust preallocates one byte buffer, converts that allocation into
+the source string without cloning it, and returns exact and normalized hashes.
+The frontend uses those typed fingerprints, loads the sidecar in parallel with
+Markdown processing, bounds concurrent block hashing, and yields between costly
+large-document stages. Progressive reading remains a later step because it
+requires provisional rendering and cancellation semantics.
 
 ## 18. Delivery Milestones
 

@@ -7,6 +7,7 @@ describe("BrowserNativeService source revisions", () => {
     const opened = await native.openDocument();
     expect(opened).not.toBeNull();
     if (!opened) return;
+    expect(opened.revision.normalizedSha256).toMatch(/^[0-9a-f]{64}$/u);
 
     await expect(
       native.sourceHasChanged(opened.sessionId, opened.revision.sha256),
