@@ -538,8 +538,11 @@ Source file changes trigger a debounced reload prompt. Unsaved comment text is
 kept in memory while the source is reparsed. Revdown never writes a watched
 source file. The native boundary uses the cross-platform `notify` crate to watch
 only the source's parent directory, filters events to the active source path,
-and sends no path or document content through the event payload. This avoids
-idle whole-file polling while still detecting atomic replacements.
+and ignores access and metadata-only activity. Remaining events are treated as
+change hints: after they settle, Revdown compares the source's byte hash with
+the loaded revision and prompts only when they differ. No path or document
+content is sent through the event payload. This avoids idle whole-file polling
+while still detecting atomic replacements.
 
 ## 16. Security and Privacy
 

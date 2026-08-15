@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{event::ModifyKind, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -223,6 +223,10 @@ fn current_revision(path: &Path) -> CommandResult<Option<String>> {
     }
 }
 
+fn source_bytes_changed(path: &Path, expected_sha256: &str) -> CommandResult<bool> {
+    Ok(current_revision(path)?.as_deref() != Some(expected_sha256))
+}
+
 fn require_revision(path: &Path, expected_revision: Option<&str>) -> CommandResult<()> {
     let current = current_revision(path)?;
     if current.as_deref() != expected_revision {
@@ -381,6 +385,13 @@ fn watch_event_matches_source(event_path: &Path, source_path: &Path) -> bool {
         return false;
     };
     same_destination(&event_path, &source_path)
+}
+
+fn source_event_may_change_contents(kind: &EventKind) -> bool {
+    !matches!(
+        kind,
+        EventKind::Access(_) | EventKind::Modify(ModifyKind::Metadata(_))
+    )
 }
 
 #[cfg(not(windows))]
@@ -581,7 +592,7 @@ pub fn watch_source(
             let Ok(event) = result else {
                 return;
             };
-            if matches!(event.kind, EventKind::Access(_)) {
+            if !source_event_may_change_contents(&event.kind) {
                 return;
             }
             if event
@@ -617,6 +628,16 @@ pub fn watch_source(
         .map_err(|_| CommandError::new("state_error", "The source watcher is unavailable."))?
         .insert(session_id, watcher);
     Ok(())
+}
+
+#[tauri::command]
+pub fn source_has_changed(
+    state: State<'_, AppState>,
+    session_id: String,
+    expected_sha256: String,
+) -> CommandResult<bool> {
+    let session = session_for(&state, &session_id)?;
+    source_bytes_changed(&session.source_path, &expected_sha256)
 }
 
 #[tauri::command]
@@ -690,6 +711,9 @@ pub fn open_external(url: String) -> CommandResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::event::{
+        AccessKind, CreateKind, DataChange, MetadataKind, ModifyKind, RemoveKind, RenameMode,
+    };
     use tempfile::tempdir;
 
     fn sidecar(filename: &str, marker: &str) -> String {
@@ -946,6 +970,48 @@ mod tests {
             &source_path
         ));
         assert!(!watch_event_matches_source(&sibling_path, &source_path));
+    }
+
+    #[test]
+    fn source_watch_ignores_events_that_cannot_change_file_bytes() {
+        for kind in [
+            EventKind::Access(AccessKind::Any),
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::Permissions)),
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::Ownership)),
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::Extended)),
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)),
+        ] {
+            assert!(!source_event_may_change_contents(&kind));
+        }
+
+        for kind in [
+            EventKind::Any,
+            EventKind::Create(CreateKind::File),
+            EventKind::Remove(RemoveKind::File),
+            EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+            EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+            EventKind::Modify(ModifyKind::Any),
+            EventKind::Other,
+        ] {
+            assert!(source_event_may_change_contents(&kind));
+        }
+    }
+
+    #[test]
+    fn source_change_confirmation_compares_file_bytes() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("document.md");
+        let source = b"# Source\n";
+        fs::write(&source_path, source).unwrap();
+        let expected_sha256 = hash_bytes(source);
+
+        assert!(!source_bytes_changed(&source_path, &expected_sha256).unwrap());
+        fs::write(&source_path, source).unwrap();
+        assert!(!source_bytes_changed(&source_path, &expected_sha256).unwrap());
+        fs::write(&source_path, b"# Changed\n").unwrap();
+        assert!(source_bytes_changed(&source_path, &expected_sha256).unwrap());
+        fs::remove_file(&source_path).unwrap();
+        assert!(source_bytes_changed(&source_path, &expected_sha256).unwrap());
     }
 
     #[test]

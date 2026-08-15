@@ -67,6 +67,7 @@ import {
   type CommentFilter,
 } from "./state";
 import { SidecarSaveCoordinator } from "./saveQueue";
+import { SourceChangeVerifier } from "./sourceChange";
 
 type PendingSelection = {
   mapped: MappedSelection;
@@ -84,6 +85,7 @@ export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const mutationsAllowed = reviewMutationsAllowed(state);
   const activeSessionId = state.document?.sessionId;
+  const activeSourceSha256 = state.document?.revision.sha256;
   const [native, setNative] = useState<NativeService | null>(null);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
@@ -387,22 +389,30 @@ export function App() {
   }, [mutationsAllowed, state.model]);
 
   useEffect(() => {
-    if (!native || !activeSessionId || state.phase !== "ready") return;
+    if (
+      !native ||
+      !activeSessionId ||
+      !activeSourceSha256 ||
+      state.phase !== "ready"
+    )
+      return;
     let active = true;
     let unsubscribe: (() => void) | undefined;
-    let debounce: number | undefined;
     const sessionId = activeSessionId;
+    const verifier = new SourceChangeVerifier({
+      delayMs: 200,
+      check: () => native.sourceHasChanged(sessionId, activeSourceSha256),
+      onChanged: () => {
+        dispatch({ type: "source_changed", value: true });
+        setPendingSelection((pending) =>
+          pending ? { ...pending, invalidated: true } : null,
+        );
+      },
+      onError: (error) =>
+        dispatch({ type: "set_message", message: describeError(error) }),
+    });
     void native
-      .observeSourceChanges(sessionId, () => {
-        if (debounce !== undefined) window.clearTimeout(debounce);
-        debounce = window.setTimeout(() => {
-          if (!active) return;
-          dispatch({ type: "source_changed", value: true });
-          setPendingSelection((pending) =>
-            pending ? { ...pending, invalidated: true } : null,
-          );
-        }, 200);
-      })
+      .observeSourceChanges(sessionId, verifier.notify)
       .then((stop) => {
         if (active) unsubscribe = stop;
         else stop();
@@ -413,10 +423,10 @@ export function App() {
       });
     return () => {
       active = false;
-      if (debounce !== undefined) window.clearTimeout(debounce);
+      verifier.dispose();
       unsubscribe?.();
     };
-  }, [activeSessionId, native, state.phase]);
+  }, [activeSessionId, activeSourceSha256, native, state.phase]);
 
   const reloadSource = useCallback(async () => {
     if (!native || !state.document) return;

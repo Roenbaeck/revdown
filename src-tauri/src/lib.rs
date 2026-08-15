@@ -3,8 +3,8 @@ mod fullscreen;
 
 use commands::{
     export_review, load_sidecar, open_document, open_external, queue_associated_document,
-    read_local_image, reload_source, save_sidecar, take_pending_document, unwatch_source,
-    watch_source, AppState,
+    read_local_image, reload_source, save_sidecar, source_has_changed, take_pending_document,
+    unwatch_source, watch_source, AppState,
 };
 use fullscreen::{
     handle_window_event, set_window_fullscreen, window_fullscreen_state, FullscreenState,
@@ -76,6 +76,7 @@ pub fn run() {
             export_review,
             watch_source,
             unwatch_source,
+            source_has_changed,
             reload_source,
             read_local_image,
             open_external,

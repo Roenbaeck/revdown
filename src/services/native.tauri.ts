@@ -94,6 +94,13 @@ export class TauriNativeService implements NativeService {
     };
   }
 
+  sourceHasChanged(
+    sessionId: string,
+    expectedSha256: string,
+  ): Promise<boolean> {
+    return command("source_has_changed", { sessionId, expectedSha256 });
+  }
+
   reloadSource(sessionId: string): Promise<OpenedDocument> {
     return command("reload_source", { sessionId });
   }

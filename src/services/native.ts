@@ -48,6 +48,7 @@ export type NativeService = {
     sessionId: string,
     listener: () => void,
   ): Promise<() => void>;
+  sourceHasChanged(sessionId: string, expectedSha256: string): Promise<boolean>;
   reloadSource(sessionId: string): Promise<OpenedDocument>;
   readLocalImage(
     sessionId: string,

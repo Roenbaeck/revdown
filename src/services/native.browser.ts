@@ -140,6 +140,14 @@ export class BrowserNativeService implements NativeService {
     return Promise.resolve(() => undefined);
   }
 
+  sourceHasChanged(
+    sessionId: string,
+    expectedSha256: string,
+  ): Promise<boolean> {
+    const session = this.session(sessionId);
+    return Promise.resolve(session.document.revision.sha256 !== expectedSha256);
+  }
+
   reloadSource(sessionId: string): Promise<OpenedDocument> {
     return Promise.resolve(this.session(sessionId).document);
   }
