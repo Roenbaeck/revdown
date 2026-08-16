@@ -51,5 +51,44 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Diagnose Windows Rust test loader
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --no-run
+          $testBinary = Get-ChildItem src-tauri/target/debug/deps/revdown_lib-*.exe |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if ($null -eq $testBinary) {
+            throw "Could not locate the Revdown library test executable."
+          }
+          Write-Host "Inspecting $($testBinary.FullName)"
+
+          $dumpbin = Get-ChildItem "$env:ProgramFiles/Microsoft Visual Studio/2022" `
+            -Filter dumpbin.exe -File -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($null -ne $dumpbin) {
+            & $dumpbin.FullName /DEPENDENTS $testBinary.FullName
+            & $dumpbin.FullName /IMPORTS $testBinary.FullName
+          } else {
+            Write-Warning "dumpbin.exe was not found."
+          }
+
+          $debuggerRoot = "${env:ProgramFiles(x86)}/Windows Kits/10/Debuggers/x64"
+          $cdb = Join-Path $debuggerRoot cdb.exe
+          $gflags = Join-Path $debuggerRoot gflags.exe
+          if ((Test-Path $cdb) -and (Test-Path $gflags)) {
+            & $gflags /i $testBinary.Name +sls
+            try {
+              & $cdb -lines -c "g;q" $testBinary.FullName --list
+              Write-Host "cdb exit code: $LASTEXITCODE"
+            } finally {
+              & $gflags /i $testBinary.Name -sls
+            }
+          } else {
+            Write-Warning "Windows debugging tools were not found at $debuggerRoot."
+            & $testBinary.FullName --list
+            Write-Host "Direct test executable exit code: $LASTEXITCODE"
+          }
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: pnpm tauri build
