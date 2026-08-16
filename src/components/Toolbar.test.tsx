@@ -12,6 +12,7 @@ function renderToolbar(onEditExportInstructions = vi.fn()) {
       minimapOpen
       appearanceOpen={false}
       agentIntegrationOpen={false}
+      searchOpen={false}
       windowFullscreen={false}
       includeResolved={false}
       saveStatus="idle"
@@ -24,6 +25,7 @@ function renderToolbar(onEditExportInstructions = vi.fn()) {
       onToggleMinimap={vi.fn()}
       onToggleAppearance={vi.fn()}
       onToggleAgentIntegration={vi.fn()}
+      onToggleSearch={vi.fn()}
       onToggleFullscreen={vi.fn()}
       onFilter={vi.fn()}
       onIncludeResolved={vi.fn()}
@@ -50,6 +52,9 @@ describe("Toolbar", () => {
       screen.queryByRole("button", { name: /comment on selection/u }),
     ).not.toBeInTheDocument();
     expect(screen.getByLabelText("View and settings")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Search document" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("View", { exact: true })).not.toBeInTheDocument();
   });
 

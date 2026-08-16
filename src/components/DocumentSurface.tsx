@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { AnchorMatch } from "../lib/anchors/match";
 import type { MarkdownDocumentModel } from "../lib/markdown/model";
+import type { DocumentSearchMatch } from "../lib/markdown/search";
 import type { ReviewComment } from "../lib/schema/sidecar";
 import type { NativeService } from "../services/native";
 
@@ -9,6 +10,8 @@ type DocumentSurfaceProps = {
   comments: readonly ReviewComment[];
   matches: ReadonlyMap<string, AnchorMatch>;
   selectedCommentId: string | null;
+  searchMatches: readonly DocumentSearchMatch[];
+  activeSearchMatchId: string | null;
   native: NativeService;
   sessionId: string;
   onSelection: () => void;
@@ -33,31 +36,46 @@ type PositionedSourceSpan = {
   blockId: string | undefined;
 };
 
-type SpanDecoration = {
+type CommentSpanDecoration = {
+  kind: "comment";
   comment: ReviewComment;
   match: AnchorMatch;
   startOffset: number;
   endOffset: number;
 };
 
+type SearchSpanDecoration = {
+  kind: "search";
+  searchMatch: DocumentSearchMatch;
+  active: boolean;
+  startOffset: number;
+  endOffset: number;
+};
+
+type SpanDecoration = CommentSpanDecoration | SearchSpanDecoration;
+
 type DecoratedFragment = {
   element: HTMLElement;
   decorations: readonly SpanDecoration[];
 };
 
-const ANCHOR_CLASSES = [
+const DECORATION_CLASSES = [
   "rd-anchor",
   "rd-anchor-exact",
   "rd-anchor-relocated",
   "rd-anchor-ambiguous",
   "rd-anchor-selected",
   "rd-anchor-multiple",
+  "rd-search-match",
+  "rd-search-active",
 ] as const;
 
-function clearAnchorDecoration(element: HTMLElement): void {
-  element.classList.remove(...ANCHOR_CLASSES);
+function clearDecoration(element: HTMLElement): void {
+  element.classList.remove(...DECORATION_CLASSES);
   delete element.dataset.rdCommentIds;
   delete element.dataset.rdAnchorCount;
+  delete element.dataset.rdSearchMatchId;
+  delete element.dataset.rdSearchActive;
   if (element.dataset.rdAnchorControl === "true") {
     delete element.dataset.rdAnchorControl;
     element.removeAttribute("role");
@@ -208,7 +226,7 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
     const spans = [
       ...surface.querySelectorAll<HTMLElement>("[data-rd-source-start]"),
     ];
-    for (const span of spans) clearAnchorDecoration(span);
+    for (const span of spans) clearDecoration(span);
     const positionedSpans: PositionedSourceSpan[] = spans
       .flatMap((element) => {
         const sourceMap = sourceMapForElement(element);
@@ -270,6 +288,7 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
         if (!offsets) continue;
         const decorations = decorationsBySpan.get(span.element) ?? [];
         decorations.push({
+          kind: "comment",
           comment,
           match,
           startOffset: offsets.start,
@@ -279,20 +298,89 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
       }
     }
 
-    const accessibleAnchors = new Map<HTMLElement, SpanDecoration[]>();
+    for (const searchMatch of props.searchMatches) {
+      let low = 0;
+      let high = positionedSpans.length;
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (
+          (positionedSpans[middle]?.start ?? Number.POSITIVE_INFINITY) <
+          searchMatch.sourceRange.start
+        )
+          low = middle + 1;
+        else high = middle;
+      }
+      for (
+        let index = Math.max(0, low - 1);
+        index < positionedSpans.length;
+        index += 1
+      ) {
+        const span = positionedSpans[index];
+        if (!span || span.start >= searchMatch.sourceRange.end) break;
+        if (span.blockId !== searchMatch.blockId) continue;
+        if (
+          !overlaps(
+            span.start,
+            span.end,
+            searchMatch.sourceRange.start,
+            searchMatch.sourceRange.end,
+          )
+        )
+          continue;
+        const offsets = renderedOffsetsForSourceRange(
+          span.sourceMap,
+          searchMatch.sourceRange.start,
+          searchMatch.sourceRange.end,
+        );
+        if (!offsets) continue;
+        const decorations = decorationsBySpan.get(span.element) ?? [];
+        decorations.push({
+          kind: "search",
+          searchMatch,
+          active: searchMatch.id === props.activeSearchMatchId,
+          startOffset: offsets.start,
+          endOffset: offsets.end,
+        });
+        decorationsBySpan.set(span.element, decorations);
+      }
+    }
+
+    const accessibleAnchors = new Map<HTMLElement, CommentSpanDecoration[]>();
     const commentsWithControls = new Set<string>();
     for (const span of positionedSpans) {
       const decorations = decorationsBySpan.get(span.element);
       if (!decorations) continue;
       for (const fragment of splitSourceSpan(span, decorations)) {
         if (fragment.decorations.length === 0) continue;
+        const searchDecorations = fragment.decorations.filter(
+          (decoration): decoration is SearchSpanDecoration =>
+            decoration.kind === "search",
+        );
+        if (searchDecorations.length > 0) {
+          const activeSearch = searchDecorations.find(
+            (decoration) => decoration.active,
+          );
+          fragment.element.classList.add("rd-search-match");
+          fragment.element.dataset.rdSearchMatchId =
+            activeSearch?.searchMatch.id ??
+            searchDecorations[0]!.searchMatch.id;
+          if (activeSearch) {
+            fragment.element.classList.add("rd-search-active");
+            fragment.element.dataset.rdSearchActive = "true";
+          }
+        }
+        const commentDecorations = fragment.decorations.filter(
+          (decoration): decoration is CommentSpanDecoration =>
+            decoration.kind === "comment",
+        );
+        if (commentDecorations.length === 0) continue;
         const ids = [
           ...new Set(
-            fragment.decorations.map((decoration) => decoration.comment.id),
+            commentDecorations.map((decoration) => decoration.comment.id),
           ),
         ];
         fragment.element.classList.add("rd-anchor");
-        for (const decoration of fragment.decorations) {
+        for (const decoration of commentDecorations) {
           fragment.element.classList.add(`rd-anchor-${decoration.match.state}`);
         }
         if (ids.includes(props.selectedCommentId ?? "")) {
@@ -304,7 +392,7 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
         }
         fragment.element.dataset.rdCommentIds = ids.join(",");
         if (ids.some((id) => !commentsWithControls.has(id))) {
-          accessibleAnchors.set(fragment.element, [...fragment.decorations]);
+          accessibleAnchors.set(fragment.element, [...commentDecorations]);
           ids.forEach((id) => commentsWithControls.add(id));
         }
       }
@@ -327,6 +415,8 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
     props.comments,
     props.matches,
     props.selectedCommentId,
+    props.searchMatches,
+    props.activeSearchMatchId,
     props.model.html,
   ]);
 
@@ -337,6 +427,14 @@ export function DocumentSurface(props: DocumentSurfaceProps) {
     );
     selected?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [props.selectedCommentId]);
+
+  useEffect(() => {
+    if (!props.activeSearchMatchId) return;
+    const selected = surfaceRef.current?.querySelector<HTMLElement>(
+      '[data-rd-search-active="true"]',
+    );
+    selected?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [props.activeSearchMatchId]);
 
   useEffect(() => {
     const surface = surfaceRef.current;

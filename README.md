@@ -40,6 +40,7 @@ the application database.
 - CommonMark and GitHub Flavored Markdown rendering
 - KaTeX math rendering and Shiki code highlighting
 - Collapsible outline and comment-aware minimap for long documents
+- Fast in-document search with highlighted results and keyboard navigation
 - System-aware light, sepia, and dark themes with reading controls
 - Finder and Explorer “Open With” support for `.md` and `.markdown` files
 - Comments anchored to rendered selections
@@ -52,13 +53,15 @@ the application database.
 
 ## Agent Access
 
-The desktop app can share the active review with a locally running Codex client.
-Open the cog menu, choose **Agent access**, enable the localhost MCP server, and
-copy the generated configuration into Codex. Codex can read comment status and
-bounded anchor context without receiving the source path. It can also queue an
-`applied`, `skipped`, `ambiguous`, or `blocked` outcome for each comment. Reports
-appear beside comments for review; only the user can accept an applied report
-and resolve its comment. MCP never edits the source document or sidecar.
+The desktop app can share the active review with any compatible local MCP
+client. Open the cog menu, choose **Agent access**, enable the localhost MCP
+server, and choose generic connection details or a setup preset for Codex,
+Claude Code, OpenCode, or Antigravity. Connected tools can read comment status
+and bounded anchor context without receiving the source path. They can also
+queue an `applied`, `skipped`, `ambiguous`, or `blocked` outcome for each
+comment. Reports appear beside comments for review; only the user can accept an
+applied report and resolve its comment. MCP never edits the source document or
+sidecar.
 
 ## Stack
 

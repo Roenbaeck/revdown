@@ -7,6 +7,29 @@ export type AgentIntegrationSettings = {
   token: string;
 };
 
+export type McpClientId =
+  | "connection"
+  | "codex"
+  | "claude-code"
+  | "opencode"
+  | "antigravity";
+
+export type McpClientConfiguration = {
+  id: McpClientId;
+  label: string;
+  instructions: string;
+  configuration: string;
+  configurationLabel: string;
+  copyLabel: string;
+};
+
+const MCP_TOOL_NAMES = [
+  "get_review_state",
+  "list_comments",
+  "get_comment",
+  "report_comment_results",
+] as const;
+
 function isToken(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -53,11 +76,89 @@ export function saveAgentIntegrationSettings(
   storage.setItem(STORAGE_KEY, JSON.stringify(settings));
 }
 
-export function codexMcpConfiguration(url: string, token: string): string {
-  return `[mcp_servers.revdown]
-url = "${url}"
-http_headers = { Authorization = "Bearer ${token}" }
-enabled_tools = ["get_review_state", "list_comments", "get_comment", "report_comment_results"]
+function jsonConfiguration(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+export function mcpClientConfigurations(
+  url: string,
+  token: string,
+): readonly McpClientConfiguration[] {
+  const authorization = `Bearer ${token}`;
+  const tools = MCP_TOOL_NAMES.join(", ");
+
+  return [
+    {
+      id: "connection",
+      label: "Connection details",
+      instructions:
+        "Use these values in any MCP client that supports remote Streamable HTTP servers with custom headers.",
+      configuration: `Transport: Streamable HTTP
+URL: ${url}
+HTTP header: Authorization: ${authorization}
+Tools: ${tools}
+`,
+      configurationLabel: "MCP connection details",
+      copyLabel: "Copy connection details",
+    },
+    {
+      id: "codex",
+      label: "Codex",
+      instructions:
+        "Add this to ~/.codex/config.toml, then restart Codex. Inspect the connection with /mcp.",
+      configuration: `[mcp_servers.revdown]
+url = ${JSON.stringify(url)}
+http_headers = { Authorization = ${JSON.stringify(authorization)} }
+enabled_tools = ["${MCP_TOOL_NAMES.join('", "')}"]
 default_tools_approval_mode = "writes"
-`;
+`,
+      configurationLabel: "Codex MCP configuration",
+      copyLabel: "Copy Codex configuration",
+    },
+    {
+      id: "claude-code",
+      label: "Claude Code",
+      instructions:
+        "Run this in a terminal to add Revdown at user scope. Inspect the connection with /mcp.",
+      configuration: `claude mcp add --transport http --scope user revdown ${url} --header 'Authorization: ${authorization}'\n`,
+      configurationLabel: "Claude Code MCP command",
+      copyLabel: "Copy Claude Code command",
+    },
+    {
+      id: "opencode",
+      label: "OpenCode",
+      instructions:
+        "Merge this into ~/.config/opencode/opencode.json, then restart OpenCode. Inspect the connection with opencode mcp list.",
+      configuration: jsonConfiguration({
+        $schema: "https://opencode.ai/config.json",
+        mcp: {
+          revdown: {
+            type: "remote",
+            url,
+            enabled: true,
+            oauth: false,
+            headers: { Authorization: authorization },
+          },
+        },
+      }),
+      configurationLabel: "OpenCode MCP configuration",
+      copyLabel: "Copy OpenCode configuration",
+    },
+    {
+      id: "antigravity",
+      label: "Antigravity",
+      instructions:
+        "Merge this into ~/.gemini/config/mcp_config.json, then refresh Installed MCP Servers under Settings → Customizations.",
+      configuration: jsonConfiguration({
+        mcpServers: {
+          revdown: {
+            serverUrl: url,
+            headers: { Authorization: authorization },
+          },
+        },
+      }),
+      configurationLabel: "Antigravity MCP configuration",
+      copyLabel: "Copy Antigravity configuration",
+    },
+  ];
 }

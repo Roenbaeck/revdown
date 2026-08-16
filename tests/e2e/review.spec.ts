@@ -149,6 +149,37 @@ test("keeps narrow toolbar controls on one line", async ({ page }) => {
   );
 });
 
+test("searches rendered text with keyboard navigation", async ({ page }) => {
+  await page.keyboard.press("Control+f");
+  const search = page.getByRole("search", { name: "Find in document" });
+  const query = search.getByRole("searchbox", { name: "Search text" });
+  await expect(query).toBeFocused();
+
+  await query.fill("source");
+  await expect(search.locator(".documentSearchStatus")).toHaveText("1 / 3");
+  await expect(page.locator(".rd-search-active").first()).toBeVisible();
+
+  await query.press("Enter");
+  await expect(search.locator(".documentSearchStatus")).toHaveText("2 / 3");
+  await query.press("Shift+Enter");
+  await expect(search.locator(".documentSearchStatus")).toHaveText("1 / 3");
+
+  await query.fill("review rendered");
+  await expect(search.locator(".documentSearchStatus")).toHaveText("1 / 1");
+  await expect
+    .poll(() =>
+      page
+        .locator(".rd-search-active")
+        .allTextContents()
+        .then((parts) => parts.join("")),
+    )
+    .toBe("review rendered");
+
+  await query.press("Escape");
+  await expect(search).toBeHidden();
+  await expect(page.locator(".rd-search-match")).toHaveCount(0);
+});
+
 test("keeps a short document compact at the top of the minimap", async ({
   page,
 }) => {
@@ -201,6 +232,15 @@ test("opens a generated novel without blocking the document surface", async ({
       page.locator(".documentRegion").evaluate((region) => region.scrollTop),
     )
     .toBeGreaterThan(0);
+
+  await page.keyboard.press("Control+f");
+  const search = page.getByRole("search", { name: "Find in document" });
+  await search
+    .getByRole("searchbox", { name: "Search text" })
+    .fill("Chapter 200");
+  await expect(search.locator(".documentSearchStatus")).toHaveText("1 / 44");
+  await expect(page.locator(".rd-search-active").first()).toBeVisible();
+  await search.getByRole("searchbox", { name: "Search text" }).press("Escape");
 
   await clickToolbarAction(page, "View and settings", "Hide outline");
   await expect(outline).toBeHidden();

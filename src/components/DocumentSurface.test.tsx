@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { AnchorMatch } from "../lib/anchors/match";
 import type { MarkdownDocumentModel } from "../lib/markdown/model";
+import type { DocumentSearchMatch } from "../lib/markdown/search";
 import type { ReviewComment } from "../lib/schema/sidecar";
 import type { NativeService } from "../services/native";
 import { DocumentSurface } from "./DocumentSurface";
@@ -116,6 +117,8 @@ function surfaceProps(
     comments,
     matches,
     selectedCommentId,
+    searchMatches: [],
+    activeSearchMatchId: null,
     native,
     sessionId: "session",
     onSelection: () => undefined,
@@ -137,6 +140,8 @@ describe("document anchor accessibility", () => {
         comments={[comment]}
         matches={new Map([[comment.id, match]])}
         selectedCommentId={null}
+        searchMatches={[]}
+        activeSearchMatchId={null}
         native={native}
         sessionId="session"
         onSelection={() => undefined}
@@ -261,5 +266,46 @@ describe("document anchor accessibility", () => {
         (element) => element.textContent,
       ),
     ).toEqual(["bc", "d"]);
+  });
+
+  it("layers precise search highlights with comment anchors", () => {
+    const source = "find the target here";
+    const surfaceModel = modelForSource(source);
+    const target = commentForRange("comment-target", source, "target");
+    const blockId = `paragraph:0:${source.length}`;
+    const targetMatch = matchForComment(target, blockId);
+    const searchMatch: DocumentSearchMatch = {
+      id: `${blockId}:5:15`,
+      blockId,
+      sourceRange: { start: 5, end: 15 },
+      renderedRange: { start: 5, end: 15 },
+    };
+    const onSelectComment = vi.fn();
+    const props = surfaceProps(
+      surfaceModel,
+      [target],
+      new Map([[target.id, targetMatch]]),
+      onSelectComment,
+    );
+    const { container, rerender } = render(
+      <DocumentSurface
+        {...props}
+        searchMatches={[searchMatch]}
+        activeSearchMatchId={searchMatch.id}
+      />,
+    );
+
+    expect(
+      [...container.querySelectorAll<HTMLElement>(".rd-search-active")]
+        .map((element) => element.textContent)
+        .join(""),
+    ).toBe("the target");
+    expect(
+      container.querySelector(".rd-anchor.rd-search-active"),
+    ).toHaveTextContent("target");
+
+    rerender(<DocumentSurface {...props} />);
+    expect(container.querySelectorAll(".rd-search-match")).toHaveLength(0);
+    expect(container.querySelector(".rd-anchor")).toHaveTextContent("target");
   });
 });

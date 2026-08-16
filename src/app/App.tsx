@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useReducer,
@@ -10,6 +11,10 @@ import { AgentIntegrationPanel } from "../components/AgentIntegrationPanel";
 import { BrandGlyph } from "../components/BrandGlyph";
 import { DocumentMinimap } from "../components/DocumentMinimap";
 import { DocumentOutline } from "../components/DocumentOutline";
+import {
+  DocumentSearch,
+  DOCUMENT_SEARCH_INPUT_ID,
+} from "../components/DocumentSearch";
 import { DocumentSurface } from "../components/DocumentSurface";
 import { ExportInstructionsDialog } from "../components/ExportInstructionsDialog";
 import { ReviewPanel } from "../components/ReviewPanel";
@@ -31,12 +36,14 @@ import { buildAgentReviewSnapshot } from "../lib/agent/reviewSnapshot";
 import type { PendingAgentReport } from "../lib/agent/report";
 import { generateReviewMarkdown } from "../lib/export/review";
 import { parseMarkdownDocument } from "../lib/markdown/model";
+import { searchMarkdownDocument } from "../lib/markdown/search";
 import {
-  codexMcpConfiguration,
   createAgentAccessToken,
   defaultMcpServerUrl,
   loadAgentIntegrationSettings,
+  mcpClientConfigurations,
   saveAgentIntegrationSettings,
+  type McpClientConfiguration,
 } from "../lib/settings/agent";
 import {
   loadExportInstruction,
@@ -85,6 +92,8 @@ type PendingSelection = {
   invalidated: boolean;
 };
 
+const SEARCH_HIGHLIGHT_LIMIT = 500;
+
 function describeError(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -102,6 +111,9 @@ export function App() {
     useState<PendingSelection | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [minimapOpen, setMinimapOpen] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [agentIntegrationOpen, setAgentIntegrationOpen] = useState(false);
   const [agentSettings, setAgentSettings] = useState(() =>
@@ -130,6 +142,24 @@ export function App() {
     () => setAgentIntegrationOpen(false),
     [],
   );
+  const focusDocumentSearch = useCallback(() => {
+    setSearchOpen(true);
+    window.requestAnimationFrame(() => {
+      const input = window.document.getElementById(DOCUMENT_SEARCH_INPUT_ID);
+      if (input instanceof HTMLInputElement) {
+        input.focus();
+        input.select();
+      }
+    });
+  }, []);
+  const closeDocumentSearch = useCallback(() => {
+    setSearchOpen(false);
+    window.requestAnimationFrame(() => {
+      window.document.getElementById("document-surface")?.focus({
+        preventScroll: true,
+      });
+    });
+  }, []);
   const toggleWindowFullscreen = useCallback(() => {
     if (!native) return;
     void native.setWindowFullscreen(!windowFullscreen).catch(() => undefined);
@@ -224,17 +254,53 @@ export function App() {
       String(windowFullscreen);
   }, [windowFullscreen]);
   useEffect(() => {
-    const toggleWithKeyboard = (event: KeyboardEvent) => {
-      const macShortcut = event.metaKey && event.ctrlKey && event.key === "f";
-      if (macShortcut || (windowFullscreen && event.key === "Escape")) {
+    const handleKeyboardShortcut = (event: KeyboardEvent) => {
+      const key = event.key.toLocaleLowerCase();
+      const macFullscreenShortcut =
+        event.metaKey && event.ctrlKey && key === "f";
+      if (macFullscreenShortcut) {
+        event.preventDefault();
+        toggleWindowFullscreen();
+        return;
+      }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        key === "f" &&
+        state.phase === "ready" &&
+        state.model
+      ) {
+        event.preventDefault();
+        focusDocumentSearch();
+        return;
+      }
+      if (event.key === "Escape" && searchOpen) {
+        event.preventDefault();
+        closeDocumentSearch();
+        return;
+      }
+      if (windowFullscreen && event.key === "Escape") {
         event.preventDefault();
         toggleWindowFullscreen();
       }
     };
-    window.addEventListener("keydown", toggleWithKeyboard, true);
+    window.addEventListener("keydown", handleKeyboardShortcut, true);
     return () =>
-      window.removeEventListener("keydown", toggleWithKeyboard, true);
-  }, [toggleWindowFullscreen, windowFullscreen]);
+      window.removeEventListener("keydown", handleKeyboardShortcut, true);
+  }, [
+    closeDocumentSearch,
+    focusDocumentSearch,
+    searchOpen,
+    state.model,
+    state.phase,
+    toggleWindowFullscreen,
+    windowFullscreen,
+  ]);
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchMatchIndex(0);
+  }, [activeSessionId]);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const update = () => setSystemDark(media.matches);
@@ -666,17 +732,23 @@ export function App() {
     };
   }, [agentSettings.enabled, agentSnapshot, native]);
 
-  const agentConfiguration = codexMcpConfiguration(
-    mcpStatus?.url ?? defaultMcpServerUrl,
-    agentSettings.token,
+  const agentConfigurations = useMemo(
+    () =>
+      mcpClientConfigurations(
+        mcpStatus?.url ?? defaultMcpServerUrl,
+        agentSettings.token,
+      ),
+    [agentSettings.token, mcpStatus?.url],
   );
 
-  const copyAgentConfiguration = async () => {
+  const copyAgentConfiguration = async (
+    configuration: McpClientConfiguration,
+  ) => {
     try {
-      await navigator.clipboard.writeText(agentConfiguration);
+      await navigator.clipboard.writeText(configuration.configuration);
       dispatch({
         type: "set_message",
-        message: "Codex MCP configuration copied to the clipboard.",
+        message: `${configuration.configurationLabel} copied to the clipboard.`,
       });
     } catch {
       setMcpError("Clipboard access was unavailable.");
@@ -717,6 +789,55 @@ export function App() {
   const comments = useMemo(
     () => state.sidecar?.comments ?? [],
     [state.sidecar],
+  );
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const searchResults = useMemo(
+    () =>
+      state.model
+        ? searchMarkdownDocument(state.model, deferredSearchQuery)
+        : { matches: [], total: 0, limited: false },
+    [deferredSearchQuery, state.model],
+  );
+  const searchPending = searchQuery !== deferredSearchQuery;
+  const currentSearchIndex =
+    searchResults.matches.length > 0
+      ? ((searchMatchIndex % searchResults.matches.length) +
+          searchResults.matches.length) %
+        searchResults.matches.length
+      : -1;
+  const activeSearchMatch =
+    currentSearchIndex >= 0
+      ? searchResults.matches[currentSearchIndex]
+      : undefined;
+  const decoratedSearchMatches = useMemo(() => {
+    if (!searchOpen || searchPending) return [];
+    if (searchResults.matches.length <= SEARCH_HIGHLIGHT_LIMIT)
+      return searchResults.matches;
+    const highlighted = searchResults.matches.slice(0, SEARCH_HIGHLIGHT_LIMIT);
+    if (activeSearchMatch && currentSearchIndex >= SEARCH_HIGHLIGHT_LIMIT) {
+      return [...highlighted, activeSearchMatch];
+    }
+    return highlighted;
+  }, [
+    activeSearchMatch,
+    currentSearchIndex,
+    searchOpen,
+    searchPending,
+    searchResults.matches,
+  ]);
+  useEffect(() => {
+    setSearchMatchIndex(0);
+  }, [deferredSearchQuery, state.model]);
+  const navigateSearch = useCallback(
+    (direction: 1 | -1) => {
+      if (searchPending || searchResults.matches.length === 0) return;
+      setSearchMatchIndex(
+        (current) =>
+          (current + direction + searchResults.matches.length) %
+          searchResults.matches.length,
+      );
+    },
+    [searchPending, searchResults.matches.length],
   );
   const visibleAgentReports = useMemo(() => {
     const visible = new Map<string, PendingAgentReport>();
@@ -762,6 +883,7 @@ export function App() {
         minimapOpen={minimapOpen}
         appearanceOpen={appearanceOpen}
         agentIntegrationOpen={agentIntegrationOpen}
+        searchOpen={searchOpen}
         windowFullscreen={windowFullscreen}
         onOpen={() => void openDocument()}
         onEditExportInstructions={() => {
@@ -780,6 +902,10 @@ export function App() {
           setAppearanceOpen(false);
           setExportInstructionsOpen(false);
           setAgentIntegrationOpen((open) => !open);
+        }}
+        onToggleSearch={() => {
+          if (searchOpen) closeDocumentSearch();
+          else focusDocumentSearch();
         }}
         onToggleFullscreen={toggleWindowFullscreen}
         onFilter={(filter: CommentFilter) =>
@@ -806,11 +932,13 @@ export function App() {
           status={mcpStatus}
           error={mcpError}
           sharedFilename={state.document?.filename}
-          configuration={agentConfiguration}
+          configurations={agentConfigurations}
           onEnabledChange={(enabled) =>
             setAgentSettings((settings) => ({ ...settings, enabled }))
           }
-          onCopyConfiguration={() => void copyAgentConfiguration()}
+          onCopyConfiguration={(configuration) =>
+            void copyAgentConfiguration(configuration)
+          }
           onRotateToken={() =>
             setAgentSettings((settings) => ({
               ...settings,
@@ -887,6 +1015,23 @@ export function App() {
           className="documentRegion"
           aria-busy={state.phase === "loading"}
         >
+          {searchOpen && ready && (
+            <DocumentSearch
+              query={searchQuery}
+              current={currentSearchIndex + 1}
+              available={searchResults.matches.length}
+              total={searchResults.total}
+              limited={searchResults.limited}
+              pending={searchPending}
+              onQueryChange={(query) => {
+                setSearchQuery(query);
+                setSearchMatchIndex(0);
+              }}
+              onPrevious={() => navigateSearch(-1)}
+              onNext={() => navigateSearch(1)}
+              onClose={closeDocumentSearch}
+            />
+          )}
           {state.phase === "empty" && (
             <div className="emptyState">
               <span className="emptyMark" aria-hidden="true">
@@ -931,6 +1076,12 @@ export function App() {
               comments={comments}
               matches={state.matches}
               selectedCommentId={state.selectedCommentId}
+              searchMatches={decoratedSearchMatches}
+              activeSearchMatchId={
+                searchOpen && !searchPending
+                  ? (activeSearchMatch?.id ?? null)
+                  : null
+              }
               native={native}
               sessionId={state.document!.sessionId}
               onSelection={captureSelection}

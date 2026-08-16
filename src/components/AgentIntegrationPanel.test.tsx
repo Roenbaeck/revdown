@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
+import { mcpClientConfigurations } from "../lib/settings/agent";
 import { AgentIntegrationPanel } from "./AgentIntegrationPanel";
 
 function renderPanel(
@@ -18,7 +19,10 @@ function renderPanel(
       }}
       error={null}
       sharedFilename="review.md"
-      configuration="[mcp_servers.revdown]"
+      configurations={mcpClientConfigurations(
+        "http://127.0.0.1:37419/mcp",
+        "a".repeat(64),
+      )}
       onEnabledChange={onEnabledChange}
       onCopyConfiguration={onCopyConfiguration}
       onRotateToken={vi.fn()}
@@ -40,19 +44,53 @@ describe("AgentIntegrationPanel", () => {
     expect(onEnabledChange).toHaveBeenCalledWith(true);
   });
 
-  it("shows and copies the Codex configuration when enabled", async () => {
+  it("starts with generic connection details and offers multiple clients", async () => {
     const user = userEvent.setup();
     const { onCopyConfiguration } = renderPanel({
       settings: { enabled: true, token: "b".repeat(64) },
     });
 
-    expect(screen.getByLabelText("Codex MCP configuration")).toHaveTextContent(
-      "mcp_servers.revdown",
+    expect(screen.getByLabelText("MCP connection details")).toHaveTextContent(
+      "Streamable HTTP",
+    );
+    expect(screen.getByRole("option", { name: "Codex" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Claude Code" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "OpenCode" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Antigravity" }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Copy connection details" }),
+    );
+    expect(onCopyConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "connection" }),
+    );
+  });
+
+  it("switches to and copies a client-specific setup", async () => {
+    const user = userEvent.setup();
+    const { onCopyConfiguration } = renderPanel({
+      settings: { enabled: true, token: "b".repeat(64) },
+    });
+
+    await user.selectOptions(
+      screen.getByLabelText("MCP client"),
+      "claude-code",
+    );
+    expect(screen.getByLabelText("Claude Code MCP command")).toHaveTextContent(
+      "claude mcp add --transport http",
     );
     await user.click(
-      screen.getByRole("button", { name: "Copy Codex configuration" }),
+      screen.getByRole("button", { name: "Copy Claude Code command" }),
     );
-    expect(onCopyConfiguration).toHaveBeenCalledOnce();
+    expect(onCopyConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "claude-code" }),
+    );
   });
 
   it("disables the server control in the browser preview", () => {

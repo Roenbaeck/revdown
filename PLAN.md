@@ -1,7 +1,7 @@
 # Revdown Application Plan
 
 Status: MVP implemented; pre-release validation in progress
-Last revised: 2026-08-15
+Last revised: 2026-08-16
 
 ## 1. Product Summary
 
@@ -127,8 +127,8 @@ file exports.
 
 The desktop window has five stable regions:
 
-- A compact toolbar for opening a document, toggling navigation and review
-  panels, filtering comment status, and exporting the review.
+- A compact toolbar for opening and searching a document, toggling navigation
+  and review panels, filtering comment status, and exporting the review.
 - A collapsible document outline that lists source-backed headings and scrolls
   directly to them.
 - A scrollable rendered-document surface where comment anchors are highlighted.
@@ -138,9 +138,11 @@ The desktop window has five stable regions:
 
 The document is the primary surface. Comments should be easy to discover but
 must not obscure the text. Selecting a comment scrolls to and emphasizes its
-anchor; selecting an anchor opens its comment. Outline and minimap navigation
-must remain inexpensive for novel-sized documents and must not duplicate the
-entire rendered document as hidden DOM.
+anchor; selecting an anchor opens its comment. `Cmd+F` or `Ctrl+F` opens a
+case-insensitive literal search over rendered, source-backed block text, with
+highlighted matches and wrapping next/previous navigation. Search, outline, and
+minimap navigation must remain inexpensive for novel-sized documents and must
+not duplicate the entire rendered document as hidden DOM.
 
 Packaged builds register Revdown as an alternate viewer for `.md` and
 `.markdown` documents without replacing the user's chosen default application.
@@ -523,8 +525,11 @@ rendering, and native I/O should remain separable and independently testable.
 Revdown provides an opt-in Streamable HTTP MCP server at a fixed IPv4 loopback
 address. The user must enable it and explicitly configure a local MCP client;
 there is no network discovery or remote listener. Requests require a random
-bearer token stored in Revdown's local settings. The UI can copy a Codex
-configuration block and rotate the token when access should be revoked.
+bearer token stored in Revdown's local settings. The UI presents neutral
+connection details plus setup presets for Codex, Claude Code, OpenCode, and
+Antigravity, and can rotate the token when access should be revoked. Client
+presets are conveniences around the same standards-based endpoint rather than
+client-specific server behavior.
 
 The frontend publishes a bounded, in-memory snapshot because it already owns
 sidecar validation and computed anchor matching. Rust owns only the HTTP

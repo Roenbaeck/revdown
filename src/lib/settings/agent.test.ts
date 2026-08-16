@@ -1,7 +1,8 @@
 import {
-  codexMcpConfiguration,
   loadAgentIntegrationSettings,
+  mcpClientConfigurations,
   saveAgentIntegrationSettings,
+  type McpClientId,
 } from "./agent";
 
 describe("agent integration settings", () => {
@@ -23,17 +24,55 @@ describe("agent integration settings", () => {
     expect(loadAgentIntegrationSettings(storage)).toEqual(settings);
   });
 
-  it("generates a conservative Codex configuration", () => {
-    const configuration = codexMcpConfiguration(
+  it("generates client-neutral details and supported client configurations", () => {
+    const configurations = mcpClientConfigurations(
       "http://127.0.0.1:37419/mcp",
       "c".repeat(64),
     );
-    expect(configuration).toContain("[mcp_servers.revdown]");
-    expect(configuration).toContain('url = "http://127.0.0.1:37419/mcp"');
-    expect(configuration).toContain('Authorization = "Bearer ccccc');
-    expect(configuration).toContain(
+    const configurationFor = (id: McpClientId) => {
+      const configuration = configurations.find((item) => item.id === id);
+      expect(configuration).toBeDefined();
+      return configuration?.configuration ?? "";
+    };
+
+    expect(configurations.map(({ id }) => id)).toEqual([
+      "connection",
+      "codex",
+      "claude-code",
+      "opencode",
+      "antigravity",
+    ]);
+
+    expect(configurationFor("connection")).toContain(
+      "Transport: Streamable HTTP",
+    );
+
+    const codex = configurationFor("codex");
+    expect(codex).toContain("[mcp_servers.revdown]");
+    expect(codex).toContain('url = "http://127.0.0.1:37419/mcp"');
+    expect(codex).toContain('Authorization = "Bearer ccccc');
+    expect(codex).toContain(
       'enabled_tools = ["get_review_state", "list_comments", "get_comment", "report_comment_results"]',
     );
-    expect(configuration).toContain('default_tools_approval_mode = "writes"');
+    expect(codex).toContain('default_tools_approval_mode = "writes"');
+
+    expect(configurationFor("claude-code")).toContain(
+      "claude mcp add --transport http --scope user revdown",
+    );
+
+    const openCode = configurationFor("opencode");
+    expect(openCode).toContain('"type": "remote"');
+    expect(openCode).toContain('"oauth": false');
+
+    const antigravity = configurationFor("antigravity");
+    expect(antigravity).toContain('"mcpServers"');
+    expect(antigravity).toContain('"serverUrl": "http://127.0.0.1:37419/mcp"');
+
+    for (const configuration of configurations) {
+      expect(configuration.configuration).toContain(
+        `Authorization${configuration.id === "connection" ? ":" : ""}`,
+      );
+      expect(configuration.configuration).toContain(`Bearer ${"c".repeat(64)}`);
+    }
   });
 });
