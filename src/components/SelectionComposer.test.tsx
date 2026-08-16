@@ -36,6 +36,7 @@ function Harness() {
       {open && (
         <SelectionComposer
           mapped={mapped}
+          authorName="Alice"
           position={{ left: 0, top: 0 }}
           invalidated={false}
           onSave={() => setOpen(false)}
@@ -57,6 +58,7 @@ describe("selection composer accessibility", () => {
     const textarea = screen.getByPlaceholderText("What should change?");
     const cancel = screen.getByRole("button", { name: "Cancel" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveTextContent("Commenting as Alice");
     expect(textarea).toHaveFocus();
 
     cancel.focus();

@@ -3,6 +3,7 @@ import type { MappedSelection } from "../lib/markdown/selection";
 
 type SelectionComposerProps = {
   mapped: MappedSelection;
+  authorName: string;
   position: { left: number; top: number };
   invalidated: boolean;
   onSave: (body: string) => void;
@@ -63,6 +64,7 @@ export function SelectionComposer(props: SelectionComposerProps) {
       aria-label="New review comment"
     >
       <p className="selectionQuote">“{props.mapped.renderedText}”</p>
+      <p className="composerAuthor">Commenting as {props.authorName}</p>
       {props.invalidated && (
         <p className="inlineWarning">
           The source reloaded. Your draft is safe, but reselect the target

@@ -27,6 +27,7 @@ describe("review export", () => {
     const open = createReviewComment({
       anchor,
       body: "Preserve this fence: ```ts\nvalue\n```",
+      authorId: "8d79a898-a0cc-4f9d-9f12-6397cd52bbca",
       id: "5a5ea9e9-7983-48e7-9377-fac74a69f061",
       now: "2026-08-13T10:01:00.000Z",
     });
@@ -35,7 +36,17 @@ describe("review export", () => {
       id: "1b970d64-0e9a-4694-bf88-ed3d28fdc68d",
       status: "resolved" as const,
     };
-    const sidecar = { ...base, comments: [open, resolved] };
+    const sidecar = {
+      ...base,
+      authors: [
+        {
+          id: "8d79a898-a0cc-4f9d-9f12-6397cd52bbca",
+          displayName: "Alice `Reviewer`",
+          kind: "human" as const,
+        },
+      ],
+      comments: [open, resolved],
+    };
     const match: AnchorMatch = {
       state: "ambiguous",
       confidence: 0.7,
@@ -44,6 +55,7 @@ describe("review export", () => {
     const output = generateReviewMarkdown(sidecar, new Map([[open.id, match]]));
     expect(output).toContain("Never guess an ambiguous or unmatched target");
     expect(output).toContain("Anchor state: ambiguous");
+    expect(output).toContain("Author: `` Alice `Reviewer` ``");
     expect(output).toContain("**café 😀**");
     expect(output).toContain("````markdown");
     expect(output).not.toContain(resolved.id);
@@ -81,6 +93,7 @@ describe("review export", () => {
     );
 
     expect(output).not.toContain("\n# forged.md");
+    expect(output).toContain("Author: `Unknown`");
     expect(output).not.toContain("\t- forged");
     expect(output).toContain("\\n# forged.md");
     expect(output).toContain("\\t- forged");

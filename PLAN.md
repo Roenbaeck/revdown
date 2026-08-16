@@ -132,7 +132,8 @@ The desktop window has five stable regions:
 - A collapsible document outline that lists source-backed headings and scrolls
   directly to them.
 - A scrollable rendered-document surface where comment anchors are highlighted.
-- A resizable review panel listing comments in document order.
+- A resizable review panel listing comments in document order, with portable
+  author attribution and author filtering.
 - A collapsible, canvas-rendered minimap with a live viewport indicator and
   visible markers for open and resolved comments.
 
@@ -242,6 +243,9 @@ Clipboard export produces the same content without creating a file.
   decoded JavaScript source string, with an exclusive end offset.
 - Display line and column hints represented as one-based values.
 - Unknown future properties preserved when safely rewriting a supported schema.
+- Reviewer profiles use stable UUIDs and a bounded display name. The local
+  profile requires no account and contributes only its public name, kind, and
+  identifier to sidecars containing comments by that reviewer.
 - Unsupported schema versions opened read-only with a clear error; they are
   never overwritten.
 
@@ -281,9 +285,17 @@ the authoritative runtime schema before persistence work begins.
   },
   "createdAt": "2026-08-13T10:00:00.000Z",
   "updatedAt": "2026-08-13T10:05:00.000Z",
+  "authors": [
+    {
+      "id": "8d79a898-a0cc-4f9d-9f12-6397cd52bbca",
+      "displayName": "Alice",
+      "kind": "human"
+    }
+  ],
   "comments": [
     {
       "id": "5a5ea9e9-7983-48e7-9377-fac74a69f061",
+      "authorId": "8d79a898-a0cc-4f9d-9f12-6397cd52bbca",
       "status": "open",
       "body": "Explain why this constraint is necessary.",
       "createdAt": "2026-08-13T10:05:00.000Z",
@@ -318,8 +330,11 @@ the authoritative runtime schema before persistence work begins.
 ```
 
 Comment bodies use Markdown text but are rendered with the same safety rules as
-the source. Threaded replies, attachments, authors, and full source snapshots
-are intentionally absent from schema version 1.
+the source. Author profiles and comment `authorId` values are optional so legacy
+schema-version-1 sidecars remain valid; unattributed comments are displayed as
+`Unknown` and are never silently assigned to the local reviewer.
+Threaded replies, attachments, and full source snapshots remain intentionally
+absent from schema version 1.
 
 ## 10. Selection and Source Mapping
 
@@ -731,8 +746,9 @@ The MVP is complete when all of the following are true:
 
 1. A user can open and read a local Markdown document containing GFM, code, and
    math on Windows and macOS.
-2. The user can comment on a supported rendered selection and manage the comment
-   without changing the source file.
+2. The user can comment on a supported rendered selection, retain portable
+   reviewer attribution, and manage the comment without changing the source
+   file.
 3. Revdown writes and reloads a valid `document.md.rd.json` sidecar atomically.
 4. Exact source bytes before and after a complete review session are identical.
 5. Comments remain anchored after common insertions and moves when there is a

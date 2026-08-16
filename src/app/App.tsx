@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { AgentIntegrationPanel } from "../components/AgentIntegrationPanel";
+import { AuthorProfilePanel } from "../components/AuthorProfilePanel";
 import { BrandGlyph } from "../components/BrandGlyph";
 import { DocumentMinimap } from "../components/DocumentMinimap";
 import { DocumentOutline } from "../components/DocumentOutline";
@@ -32,6 +33,7 @@ import {
   deleteComment,
   updateComment,
 } from "../lib/comments/model";
+import { upsertAuthor } from "../lib/authors/model";
 import { buildAgentReviewSnapshot } from "../lib/agent/reviewSnapshot";
 import type { PendingAgentReport } from "../lib/agent/report";
 import { generateReviewMarkdown } from "../lib/export/review";
@@ -45,6 +47,11 @@ import {
   saveAgentIntegrationSettings,
   type McpClientConfiguration,
 } from "../lib/settings/agent";
+import {
+  loadAuthorProfile,
+  saveAuthorProfile,
+  type LocalAuthorProfile,
+} from "../lib/settings/author";
 import {
   loadExportInstruction,
   saveExportInstruction,
@@ -115,6 +122,10 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMatchIndex, setSearchMatchIndex] = useState(0);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [authorProfileOpen, setAuthorProfileOpen] = useState(false);
+  const [authorProfile, setAuthorProfile] = useState<LocalAuthorProfile>(() =>
+    loadAuthorProfile(window.localStorage),
+  );
   const [agentIntegrationOpen, setAgentIntegrationOpen] = useState(false);
   const [agentSettings, setAgentSettings] = useState(() =>
     loadAgentIntegrationSettings(window.localStorage),
@@ -138,6 +149,7 @@ export function App() {
   const documentRegionRef = useRef<HTMLElement>(null);
   const saveCoordinatorRef = useRef(new SidecarSaveCoordinator());
   const closeAppearance = useCallback(() => setAppearanceOpen(false), []);
+  const closeAuthorProfile = useCallback(() => setAuthorProfileOpen(false), []);
   const closeAgentIntegration = useCallback(
     () => setAgentIntegrationOpen(false),
     [],
@@ -171,6 +183,9 @@ export function App() {
   useEffect(() => {
     saveAgentIntegrationSettings(window.localStorage, agentSettings);
   }, [agentSettings]);
+  useEffect(() => {
+    saveAuthorProfile(window.localStorage, authorProfile);
+  }, [authorProfile]);
   useEffect(() => {
     if (!native) return;
     let active = true;
@@ -666,8 +681,19 @@ export function App() {
     )
       return;
     const anchor = createAnchor(state.model, pendingSelection.mapped);
+    const now = new Date().toISOString();
+    const sidecar = upsertAuthor(state.sidecar, authorProfile, now);
     persistSidecar(
-      addComment(state.sidecar, createReviewComment({ body, anchor })),
+      addComment(
+        sidecar,
+        createReviewComment({
+          body,
+          anchor,
+          authorId: authorProfile.id,
+          now,
+        }),
+        now,
+      ),
     );
     setPendingSelection(null);
     window.getSelection()?.removeAllRanges();
@@ -877,17 +903,20 @@ export function App() {
         panelOpen={state.panelOpen}
         includeResolved={state.includeResolvedExport}
         saveStatus={state.saveStatus}
+        canOpen={Boolean(native)}
         canExport={Boolean(ready && state.sidecar)}
         canNavigate={Boolean(ready)}
         outlineOpen={outlineOpen}
         minimapOpen={minimapOpen}
         appearanceOpen={appearanceOpen}
+        authorProfileOpen={authorProfileOpen}
         agentIntegrationOpen={agentIntegrationOpen}
         searchOpen={searchOpen}
         windowFullscreen={windowFullscreen}
         onOpen={() => void openDocument()}
         onEditExportInstructions={() => {
           setAppearanceOpen(false);
+          setAuthorProfileOpen(false);
           setAgentIntegrationOpen(false);
           setExportInstructionsOpen(true);
         }}
@@ -896,10 +925,18 @@ export function App() {
         onToggleMinimap={() => setMinimapOpen((open) => !open)}
         onToggleAppearance={() => {
           setAgentIntegrationOpen(false);
+          setAuthorProfileOpen(false);
           setAppearanceOpen((open) => !open);
+        }}
+        onToggleAuthorProfile={() => {
+          setAppearanceOpen(false);
+          setAgentIntegrationOpen(false);
+          setExportInstructionsOpen(false);
+          setAuthorProfileOpen((open) => !open);
         }}
         onToggleAgentIntegration={() => {
           setAppearanceOpen(false);
+          setAuthorProfileOpen(false);
           setExportInstructionsOpen(false);
           setAgentIntegrationOpen((open) => !open);
         }}
@@ -923,6 +960,25 @@ export function App() {
           settings={readerSettings}
           onChange={setReaderSettings}
           onClose={closeAppearance}
+        />
+      )}
+
+      {authorProfileOpen && (
+        <AuthorProfilePanel
+          profile={authorProfile}
+          onSave={(profile) => {
+            setAuthorProfile(profile);
+            if (
+              state.sidecar?.authors?.some(
+                (author) => author.id === profile.id,
+              ) &&
+              mutationsAllowed
+            ) {
+              persistSidecar(upsertAuthor(state.sidecar, profile));
+            }
+            setAuthorProfileOpen(false);
+          }}
+          onClose={closeAuthorProfile}
         />
       )}
 
@@ -1095,6 +1151,7 @@ export function App() {
         {state.panelOpen && ready && (
           <ReviewPanel
             comments={comments}
+            authors={state.sidecar?.authors ?? []}
             matches={state.matches}
             filter={state.filter}
             selectedId={state.selectedCommentId}
@@ -1165,6 +1222,7 @@ export function App() {
       {pendingSelection && (
         <SelectionComposer
           mapped={pendingSelection.mapped}
+          authorName={authorProfile.displayName}
           position={pendingSelection.position}
           invalidated={pendingSelection.invalidated}
           onCancel={() => setPendingSelection(null)}

@@ -71,11 +71,20 @@ pub struct AnchorContext {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReviewAuthor {
+    id: Option<String>,
+    display_name: String,
+    kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReviewComment {
     id: String,
     updated_at: String,
     status: String,
     feedback: String,
+    author: Option<ReviewAuthor>,
     anchor_state: String,
     confidence: f64,
     target: String,
@@ -602,7 +611,8 @@ fn list_comments(snapshot: &ReviewSnapshot, status: &str) -> Value {
                 "confidence": comment.confidence,
                 "headingPath": heading_path,
                 "target": comment.target,
-                "feedback": comment.feedback
+                "feedback": comment.feedback,
+                "author": comment.author
             })
         })
         .collect();
@@ -854,6 +864,11 @@ mod tests {
                 updated_at: "2026-08-15T08:30:00.000Z".to_owned(),
                 status: "open".to_owned(),
                 feedback: "Clarify this.".to_owned(),
+                author: Some(ReviewAuthor {
+                    id: Some("1b970d64-0e9a-4694-bf88-ed3d28fdc68d".to_owned()),
+                    display_name: "Alice".to_owned(),
+                    kind: "human".to_owned(),
+                }),
                 anchor_state: "exact".to_owned(),
                 confidence: 1.0,
                 target: "selected text".to_owned(),
@@ -1008,6 +1023,10 @@ mod tests {
         assert_eq!(
             response["result"]["structuredContent"]["comments"][0]["updatedAt"],
             "2026-08-15T08:30:00.000Z"
+        );
+        assert_eq!(
+            response["result"]["structuredContent"]["comments"][0]["author"]["displayName"],
+            "Alice"
         );
     }
 

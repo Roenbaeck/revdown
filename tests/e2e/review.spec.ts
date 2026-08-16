@@ -180,6 +180,34 @@ test("searches rendered text with keyboard navigation", async ({ page }) => {
   await expect(page.locator(".rd-search-match")).toHaveCount(0);
 });
 
+test("attributes new comments to the local reviewer profile", async ({
+  page,
+}) => {
+  await clickToolbarAction(page, "View and settings", "Reviewer profile…");
+  const profile = page.getByRole("complementary", {
+    name: "Reviewer profile",
+  });
+  await profile.getByLabel("Display name").fill("Alice");
+  await profile.getByRole("button", { name: "Save profile" }).click();
+
+  await selectRenderedText(page, "rendered Markdown");
+  const composer = page.getByRole("dialog", { name: "New review comment" });
+  await expect(composer).toContainText("Commenting as Alice");
+  await composer.getByPlaceholder("What should change?").fill("Alice review");
+  await composer.getByRole("button", { name: "Save comment" }).click();
+
+  await expect(page.getByLabel("Author: Alice")).toBeVisible();
+  await page.getByLabel("Filter by author").selectOption({ label: "Alice" });
+  await expect(page.getByText("Alice review")).toBeVisible();
+
+  await clickToolbarAction(page, "View and settings", "Reviewer profile…");
+  await expect(
+    page
+      .getByRole("complementary", { name: "Reviewer profile" })
+      .getByLabel("Display name"),
+  ).toHaveValue("Alice");
+});
+
 test("keeps a short document compact at the top of the minimap", async ({
   page,
 }) => {

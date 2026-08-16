@@ -9,11 +9,13 @@ type ToolbarProps = {
   outlineOpen: boolean;
   minimapOpen: boolean;
   appearanceOpen: boolean;
+  authorProfileOpen: boolean;
   agentIntegrationOpen: boolean;
   searchOpen: boolean;
   windowFullscreen: boolean;
   includeResolved: boolean;
   saveStatus: SaveStatus;
+  canOpen: boolean;
   canExport: boolean;
   canNavigate: boolean;
   onOpen: () => void;
@@ -22,6 +24,7 @@ type ToolbarProps = {
   onToggleOutline: () => void;
   onToggleMinimap: () => void;
   onToggleAppearance: () => void;
+  onToggleAuthorProfile: () => void;
   onToggleAgentIntegration: () => void;
   onToggleSearch: () => void;
   onToggleFullscreen: () => void;
@@ -83,6 +86,7 @@ export function Toolbar(props: ToolbarProps) {
         type="button"
         onClick={props.onOpen}
         aria-label="Open Markdown"
+        disabled={!props.canOpen}
       >
         <span className="toolbarWideLabel">Open Markdown</span>
         <span className="toolbarCompactLabel" aria-hidden="true">
@@ -158,6 +162,14 @@ export function Toolbar(props: ToolbarProps) {
         </button>
       </div>
       <div className="toolbarViewActions">
+        <button
+          type="button"
+          onClick={props.onToggleAuthorProfile}
+          aria-expanded={props.authorProfileOpen}
+          aria-controls="author-profile"
+        >
+          Reviewer
+        </button>
         <button
           type="button"
           onClick={props.onToggleAgentIntegration}
@@ -251,6 +263,17 @@ export function Toolbar(props: ToolbarProps) {
           <SettingsGlyph />
         </summary>
         <div className="toolbarMenuPanel">
+          <button
+            type="button"
+            onClick={(event) => {
+              props.onToggleAuthorProfile();
+              closeToolbarMenu(event);
+            }}
+            aria-expanded={props.authorProfileOpen}
+            aria-controls="author-profile"
+          >
+            Reviewer profile…
+          </button>
           <button
             type="button"
             onClick={(event) => {

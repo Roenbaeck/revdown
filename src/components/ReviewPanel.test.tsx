@@ -24,7 +24,7 @@ const comment: ReviewComment = {
 };
 
 function renderPanel(
-  report: PendingAgentReport,
+  report: PendingAgentReport | null,
   overrides: Partial<ComponentProps<typeof ReviewPanel>> = {},
 ) {
   const onAcceptAgentReport = vi.fn();
@@ -32,11 +32,12 @@ function renderPanel(
   render(
     <ReviewPanel
       comments={[comment]}
+      authors={[]}
       matches={new Map()}
       filter="all"
       selectedId={null}
       readOnly={false}
-      agentReports={new Map([[comment.id, report]])}
+      agentReports={report ? new Map([[comment.id, report]]) : new Map()}
       onSelect={vi.fn()}
       onEdit={vi.fn()}
       onToggleResolved={vi.fn()}
@@ -96,5 +97,52 @@ describe("ReviewPanel agent reports", () => {
       '<img src="https://tracker.invalid/pixel" onerror="alert(1)">',
     );
     await screen.findByText("Clarify", { selector: "strong" });
+  });
+});
+
+describe("ReviewPanel attribution", () => {
+  it("shows authors and filters attributed and legacy comments", async () => {
+    const user = userEvent.setup();
+    const aliceId = "1b970d64-0e9a-4694-bf88-ed3d28fdc68d";
+    const claudeId = "a0a83d29-c515-4804-a4a9-a44424fe66aa";
+    const alice = { ...comment, authorId: aliceId, body: "Alice feedback" };
+    const claude = {
+      ...comment,
+      id: "5a5ea9e9-7983-48e7-9377-fac74a69f061",
+      authorId: claudeId,
+      body: "Agent feedback",
+    };
+    const legacy = {
+      ...comment,
+      id: "dce223c7-3178-44f4-b85a-bb47f0ae5a89",
+      body: "Legacy feedback",
+    };
+    renderPanel(null, {
+      comments: [alice, claude, legacy],
+      authors: [
+        { id: aliceId, displayName: "Alice", kind: "human" },
+        { id: claudeId, displayName: "Claude Code", kind: "agent" },
+      ],
+    });
+
+    const aliceAuthor = screen.getByLabelText("Author: Alice");
+    expect(aliceAuthor).toBeInTheDocument();
+    expect(aliceAuthor).toHaveClass("commentAuthor");
+    expect(aliceAuthor.closest(".commentFooter")).not.toBeNull();
+    expect(
+      screen.getByLabelText("Author: Claude Code (agent)"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Author: Unknown")).toBeInTheDocument();
+
+    await user.selectOptions(
+      screen.getByLabelText("Filter by author"),
+      aliceId,
+    );
+    expect(screen.getByText("Alice feedback")).toBeInTheDocument();
+    expect(screen.queryByText("Agent feedback")).not.toBeInTheDocument();
+    expect(screen.queryByText("Legacy feedback")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("1", { selector: ".commentCount" }),
+    ).toBeInTheDocument();
   });
 });

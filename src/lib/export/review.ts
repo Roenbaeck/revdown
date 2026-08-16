@@ -1,4 +1,9 @@
 import type { AnchorMatch } from "../anchors/match";
+import {
+  authorIndex,
+  commentAuthor,
+  type CommentAuthor,
+} from "../authors/model";
 import type { ReviewComment, SidecarV1 } from "../schema/sidecar";
 import { defaultExportInstruction } from "../settings/export";
 
@@ -43,6 +48,7 @@ function commentSection(
   comment: ReviewComment,
   match: AnchorMatch | undefined,
   index: number,
+  author: CommentAuthor,
 ): string {
   const anchorState = match?.state ?? "unmatched";
   const heading =
@@ -53,6 +59,7 @@ function commentSection(
     `## Comment ${index + 1}: ${comment.id}`,
     "",
     `- Review state: ${comment.status}`,
+    `- Author: ${inlineCode(author.displayName)}${author.kind === "agent" ? " (agent)" : ""}`,
     `- Anchor state: ${anchorState}`,
     `- Heading context: ${inlineCode(heading)}`,
     `- Original line hint: ${comment.anchor.lineHint.start}–${comment.anchor.lineHint.end}`,
@@ -103,6 +110,7 @@ export function generateReviewMarkdown(
   const comments = sidecar.comments.filter(
     (comment) => options.includeResolved === true || comment.status === "open",
   );
+  const authors = authorIndex(sidecar.authors);
   const customInstruction = options.instruction?.trim();
   const instruction = customInstruction?.length
     ? customInstruction
@@ -127,7 +135,15 @@ export function generateReviewMarkdown(
       "There are no comments matching the selected export filter.",
     );
   comments.forEach((comment, index) => {
-    sections.push("", commentSection(comment, matches.get(comment.id), index));
+    sections.push(
+      "",
+      commentSection(
+        comment,
+        matches.get(comment.id),
+        index,
+        commentAuthor(comment, authors),
+      ),
+    );
   });
   return `${sections.join("\n")}\n`;
 }

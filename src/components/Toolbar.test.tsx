@@ -11,11 +11,13 @@ function renderToolbar(onEditExportInstructions = vi.fn()) {
       outlineOpen
       minimapOpen
       appearanceOpen={false}
+      authorProfileOpen={false}
       agentIntegrationOpen={false}
       searchOpen={false}
       windowFullscreen={false}
       includeResolved={false}
       saveStatus="idle"
+      canOpen
       canExport
       canNavigate
       onOpen={vi.fn()}
@@ -24,6 +26,7 @@ function renderToolbar(onEditExportInstructions = vi.fn()) {
       onToggleOutline={vi.fn()}
       onToggleMinimap={vi.fn()}
       onToggleAppearance={vi.fn()}
+      onToggleAuthorProfile={vi.fn()}
       onToggleAgentIntegration={vi.fn()}
       onToggleSearch={vi.fn()}
       onToggleFullscreen={vi.fn()}

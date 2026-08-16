@@ -2,11 +2,17 @@ import { useMemo, useState } from "react";
 import type { CommentFilter } from "../app/state";
 import type { PendingAgentReport } from "../lib/agent/report";
 import type { AnchorCandidate, AnchorMatch } from "../lib/anchors/match";
-import type { ReviewComment } from "../lib/schema/sidecar";
+import {
+  authorIndex,
+  commentAuthor,
+  type CommentAuthor,
+} from "../lib/authors/model";
+import type { AuthorProfile, ReviewComment } from "../lib/schema/sidecar";
 import { CommentBody } from "./CommentBody";
 
 type ReviewPanelProps = {
   comments: readonly ReviewComment[];
+  authors: readonly AuthorProfile[];
   matches: ReadonlyMap<string, AnchorMatch>;
   filter: CommentFilter;
   selectedId: string | null;
@@ -27,9 +33,13 @@ type ReviewPanelProps = {
 };
 
 function CommentCard(
-  props: ReviewPanelProps & { comment: ReviewComment; match: AnchorMatch },
+  props: ReviewPanelProps & {
+    comment: ReviewComment;
+    match: AnchorMatch;
+    author: CommentAuthor;
+  },
 ) {
-  const { comment, match } = props;
+  const { author, comment, match } = props;
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(comment.body);
@@ -145,58 +155,98 @@ function CommentCard(
           Confirm relocated anchor
         </button>
       )}
-      {confirmingDelete ? (
-        <div
-          className="deleteConfirmation"
-          role="group"
-          aria-label="Confirm comment deletion"
+      <div className="commentFooter">
+        <span
+          className={`commentAuthor commentAuthor-${author.kind}`}
+          aria-label={`Author: ${author.displayName}${author.kind === "agent" ? " (agent)" : ""}`}
+          title={author.kind === "agent" ? "Agent author" : "Comment author"}
         >
-          <span>Delete permanently?</span>
-          <button type="button" onClick={() => setConfirmingDelete(false)}>
-            Cancel
-          </button>
-          <button
-            className="dangerButton"
-            type="button"
-            disabled={props.readOnly}
-            onClick={() => props.onDelete(comment.id)}
+          {author.displayName}
+        </span>
+        {confirmingDelete ? (
+          <div
+            className="deleteConfirmation"
+            role="group"
+            aria-label="Confirm comment deletion"
           >
-            Delete comment
-          </button>
-        </div>
-      ) : (
-        <div className="cardActions">
-          <button
-            type="button"
-            disabled={props.readOnly}
-            onClick={() => setEditing(true)}
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            disabled={props.readOnly}
-            onClick={() => props.onToggleResolved(comment)}
-          >
-            {comment.status === "open" ? "Resolve" : "Reopen"}
-          </button>
-          <button
-            type="button"
-            disabled={props.readOnly}
-            onClick={() => setConfirmingDelete(true)}
-          >
-            Delete
-          </button>
-        </div>
-      )}
+            <span>Delete permanently?</span>
+            <button type="button" onClick={() => setConfirmingDelete(false)}>
+              Cancel
+            </button>
+            <button
+              className="dangerButton"
+              type="button"
+              disabled={props.readOnly}
+              onClick={() => props.onDelete(comment.id)}
+            >
+              Delete comment
+            </button>
+          </div>
+        ) : (
+          <div className="cardActions">
+            <button
+              type="button"
+              disabled={props.readOnly}
+              onClick={() => setEditing(true)}
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              disabled={props.readOnly}
+              onClick={() => props.onToggleResolved(comment)}
+            >
+              {comment.status === "open" ? "Resolve" : "Reopen"}
+            </button>
+            <button
+              type="button"
+              disabled={props.readOnly}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
     </article>
   );
 }
 
 export function ReviewPanel(props: ReviewPanelProps) {
+  const [authorFilter, setAuthorFilter] = useState("all");
+  const authors = useMemo(() => authorIndex(props.authors), [props.authors]);
+  const authorOptions = useMemo(() => {
+    const referenced = new Set(
+      props.comments.flatMap((comment) =>
+        comment.authorId && authors.has(comment.authorId)
+          ? [comment.authorId]
+          : [],
+      ),
+    );
+    return [...referenced]
+      .flatMap((id) => {
+        const author = authors.get(id);
+        return author ? [author] : [];
+      })
+      .sort((left, right) => left.displayName.localeCompare(right.displayName));
+  }, [authors, props.comments]);
+  const hasLegacyComments = props.comments.some(
+    (comment) => !comment.authorId || !authors.has(comment.authorId),
+  );
+  const effectiveAuthorFilter =
+    authorFilter === "all" ||
+    (authorFilter === "legacy" && hasLegacyComments) ||
+    authorOptions.some((author) => author.id === authorFilter)
+      ? authorFilter
+      : "all";
   const comments = useMemo(() => {
     const filtered = props.comments.filter(
-      (comment) => props.filter === "all" || comment.status === props.filter,
+      (comment) =>
+        (props.filter === "all" || comment.status === props.filter) &&
+        (effectiveAuthorFilter === "all" ||
+          (effectiveAuthorFilter === "legacy"
+            ? !comment.authorId || !authors.has(comment.authorId)
+            : comment.authorId === effectiveAuthorFilter)),
     );
     return [...filtered].sort((a, b) => {
       const aStart =
@@ -207,7 +257,13 @@ export function ReviewPanel(props: ReviewPanelProps) {
         Number.MAX_SAFE_INTEGER;
       return aStart - bStart || a.createdAt.localeCompare(b.createdAt);
     });
-  }, [props.comments, props.filter, props.matches]);
+  }, [
+    authors,
+    effectiveAuthorFilter,
+    props.comments,
+    props.filter,
+    props.matches,
+  ]);
 
   return (
     <aside className="reviewPanel" aria-label="Review comments">
@@ -218,6 +274,23 @@ export function ReviewPanel(props: ReviewPanelProps) {
         </div>
         <span className="commentCount">{comments.length}</span>
       </div>
+      <label className="reviewAuthorFilter">
+        <span>Author</span>
+        <select
+          aria-label="Filter by author"
+          value={effectiveAuthorFilter}
+          onChange={(event) => setAuthorFilter(event.target.value)}
+        >
+          <option value="all">All authors</option>
+          {authorOptions.map((author) => (
+            <option key={author.id} value={author.id}>
+              {author.displayName}
+              {author.kind === "agent" ? " (agent)" : ""}
+            </option>
+          ))}
+          {hasLegacyComments && <option value="legacy">Unknown</option>}
+        </select>
+      </label>
       {props.readOnly && (
         <p className="inlineWarning">
           {props.readOnlyMessage ??
@@ -236,6 +309,7 @@ export function ReviewPanel(props: ReviewPanelProps) {
               key={comment.id}
               {...props}
               comment={comment}
+              author={commentAuthor(comment, authors)}
               match={
                 props.matches.get(comment.id) ?? {
                   state: "unmatched",

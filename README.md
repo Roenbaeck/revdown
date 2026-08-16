@@ -44,6 +44,7 @@ the application database.
 - System-aware light, sepia, and dark themes with reading controls
 - Finder and Explorer “Open With” support for `.md` and `.markdown` files
 - Comments anchored to rendered selections
+- Portable reviewer attribution with author badges and filtering
 - Conservative re-anchoring after document drift
 - Clear reporting of ambiguous and unmatched feedback
 - Markdown file and clipboard export with customizable review instructions

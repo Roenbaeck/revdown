@@ -9,6 +9,7 @@ import {
 export function createReviewComment(input: {
   body: string;
   anchor: Anchor;
+  authorId?: string;
   id?: string;
   now?: string;
 }): ReviewComment {
@@ -17,6 +18,7 @@ export function createReviewComment(input: {
     id: input.id ?? crypto.randomUUID(),
     status: "open",
     body: input.body,
+    ...(input.authorId ? { authorId: input.authorId } : {}),
     createdAt: timestamp,
     updatedAt: timestamp,
     anchor: input.anchor,

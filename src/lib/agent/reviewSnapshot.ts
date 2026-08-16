@@ -1,4 +1,5 @@
 import type { AnchorMatch } from "../anchors/match";
+import { authorIndex, commentAuthor } from "../authors/model";
 import type { MarkdownDocumentModel } from "../markdown/model";
 import type { SidecarV1 } from "../schema/sidecar";
 
@@ -22,6 +23,11 @@ export type AgentReviewComment = {
   updatedAt: string;
   status: "open" | "resolved";
   feedback: string;
+  author: {
+    id: string | null;
+    displayName: string;
+    kind: "human" | "agent" | "unknown";
+  };
   anchorState: "exact" | "relocated" | "ambiguous" | "unmatched";
   confidence: number;
   target: string;
@@ -88,6 +94,7 @@ export function buildAgentReviewSnapshot(input: {
   sourceChanged: boolean;
   matches: ReadonlyMap<string, AnchorMatch>;
 }): AgentReviewSnapshot {
+  const authors = authorIndex(input.sidecar?.authors);
   return {
     schemaVersion: 1,
     filename: input.filename,
@@ -98,6 +105,7 @@ export function buildAgentReviewSnapshot(input: {
     sidecarIssue: input.sidecarIssue,
     sourceChanged: input.sourceChanged,
     comments: (input.sidecar?.comments ?? []).map((comment) => {
+      const author = commentAuthor(comment, authors);
       const match = input.matches.get(comment.id) ?? {
         state: "unmatched" as const,
         confidence: 0,
@@ -117,6 +125,11 @@ export function buildAgentReviewSnapshot(input: {
         updatedAt: comment.updatedAt,
         status: comment.status,
         feedback: comment.body,
+        author: {
+          id: author.id,
+          displayName: author.displayName,
+          kind: author.kind,
+        },
         anchorState: match.state,
         confidence: match.confidence,
         target: comment.anchor.textQuote.exact,

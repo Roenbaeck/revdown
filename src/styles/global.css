@@ -913,6 +913,22 @@ textarea {
   font-size: 1.65rem;
 }
 
+.reviewAuthorFilter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  margin: -0.25rem 0.35rem 0.9rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 720;
+}
+
+.reviewAuthorFilter select {
+  width: 100%;
+  min-width: 0;
+}
+
 .commentCount {
   min-width: 2rem;
   border-radius: 99px;
@@ -942,10 +958,13 @@ textarea {
 
 .commentList {
   display: grid;
+  min-width: 0;
   gap: 0.75rem;
 }
 
 .commentCard {
+  width: 100%;
+  min-width: 0;
   content-visibility: auto;
   contain-intrinsic-size: auto 140px;
   border: 1px solid var(--line);
@@ -965,6 +984,8 @@ textarea {
   align-items: center;
   gap: 0.38rem;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
   min-height: auto;
   margin: 0 0 0.65rem;
   border: 0;
@@ -1113,6 +1134,37 @@ textarea {
   white-space: pre-wrap;
 }
 
+.commentFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  margin-top: 0.75rem;
+}
+
+.commentAuthor {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commentAuthor-unknown {
+  font-style: italic;
+  font-weight: 600;
+}
+
+.commentFooter > .cardActions,
+.commentFooter > .deleteConfirmation {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
 .cardActions,
 .composerActions {
   display: flex;
@@ -1194,6 +1246,13 @@ textarea {
   padding: 0.9rem;
   background: var(--paper);
   box-shadow: 0 20px 60px rgb(24 35 34 / 24%);
+}
+
+.composerAuthor {
+  margin: -0.35rem 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .modalBackdrop {
@@ -1304,6 +1363,32 @@ textarea {
 .readerSettingsPanel select {
   width: 100%;
   color: var(--ink);
+}
+
+.authorProfilePanel {
+  grid-template-columns: 1fr;
+  width: min(420px, calc(100vw - 1.6rem));
+}
+
+.authorProfilePanel > * {
+  grid-column: 1;
+}
+
+.authorProfilePanel input {
+  width: 100%;
+}
+
+.authorProfileHelp {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.authorProfileActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .settingsReset {

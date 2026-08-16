@@ -27,6 +27,7 @@ describe("agent review snapshot", () => {
     };
     const comment = createReviewComment({
       body: "Make this more specific.",
+      authorId: "1b970d64-0e9a-4694-bf88-ed3d28fdc68d",
       anchor: createAnchor(model, mapped),
       now: "2026-08-15T10:00:00.000Z",
       id: "8d79a898-a0cc-4f9d-9f12-6397cd52bbca",
@@ -38,6 +39,13 @@ describe("agent review snapshot", () => {
         normalizedSha256: model.fingerprint.normalizedSha256,
         now: "2026-08-15T10:00:00.000Z",
       }),
+      authors: [
+        {
+          id: "1b970d64-0e9a-4694-bf88-ed3d28fdc68d",
+          displayName: "Alice",
+          kind: "human" as const,
+        },
+      ],
       comments: [comment],
     };
     const matches = matchAllAnchors(
@@ -62,6 +70,11 @@ describe("agent review snapshot", () => {
       anchorState: "exact",
       target: "selected text",
       feedback: "Make this more specific.",
+      author: {
+        id: "1b970d64-0e9a-4694-bf88-ed3d28fdc68d",
+        displayName: "Alice",
+        kind: "human",
+      },
       currentAnchor: {
         sourceRange: mapped.sourceRange,
         sourceText: "selected text",

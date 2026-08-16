@@ -16,6 +16,14 @@ const uuidV4Schema = z
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
   );
 
+export const authorProfileSchema = z
+  .object({
+    id: uuidV4Schema,
+    displayName: z.string().trim().min(1).max(100),
+    kind: z.enum(["human", "agent"]),
+  })
+  .passthrough();
+
 const sourceRangeSchema = z
   .object({
     start: z.number().int().nonnegative(),
@@ -74,6 +82,7 @@ export const commentSchema = z
     body: z.string().trim().min(1).max(100_000),
     createdAt: utcTimestampSchema,
     updatedAt: utcTimestampSchema,
+    authorId: uuidV4Schema.optional(),
     anchor: anchorSchema,
   })
   .passthrough();
@@ -97,11 +106,26 @@ export const sidecarV1Schema = z
     source: sourceSchema,
     createdAt: utcTimestampSchema,
     updatedAt: utcTimestampSchema,
+    authors: z.array(authorProfileSchema).optional(),
     comments: z.array(commentSchema),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((sidecar, context) => {
+    const seen = new Set<string>();
+    sidecar.authors?.forEach((author, index) => {
+      if (seen.has(author.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["authors", index, "id"],
+          message: "Author profile IDs must be unique",
+        });
+      }
+      seen.add(author.id);
+    });
+  });
 
 export type Anchor = z.infer<typeof anchorSchema>;
+export type AuthorProfile = z.infer<typeof authorProfileSchema>;
 export type ReviewComment = z.infer<typeof commentSchema>;
 export type SidecarV1 = z.infer<typeof sidecarV1Schema>;
 
@@ -163,6 +187,7 @@ export function createEmptySidecar(input: {
     },
     createdAt: timestamp,
     updatedAt: timestamp,
+    authors: [],
     comments: [],
   });
 }
