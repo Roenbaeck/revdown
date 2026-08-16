@@ -150,6 +150,12 @@ Packaged builds register Revdown as an alternate viewer for `.md` and
 Files opened from Finder, Explorer, or a command-line launch are routed through
 the same read-only loader as the Open Markdown action. A request made while
 Revdown is already running reuses and focuses the existing application window.
+The native File > Open… item and its standard `Cmd+O`/`Ctrl+O` shortcut invoke
+that same Open Markdown action. When Revdown launches without an explicit file,
+it reopens the most recently used document and restores its approximate reading
+position. The recent source path stays in Revdown's private application settings;
+scroll progress is keyed by a non-reversible path fingerprint and neither value
+is written to the source or sidecar.
 
 ### 7.2 Creating a comment
 
@@ -191,9 +197,11 @@ Standard browser text selection remains available to keyboard users.
 Reader preferences include system-aware light, sepia, and dark themes plus
 serif or sans-serif type, four text sizes, three line spacings, and three line
 widths. Preferences are stored locally and never modify the source document or
-its sidecar. The native window background follows the resolved theme. On macOS,
-the content uses an overlay title bar so both windowed and full-screen layouts
-draw through the native title-bar region without revealing an unrelated border.
+its sidecar. Fenced code soft-wraps visually, including long unbroken tokens,
+while preserving its source text, indentation, and line breaks. The native
+window background follows the resolved theme. On macOS, the content uses an
+overlay title bar so both windowed and full-screen layouts draw through the
+native title-bar region without revealing an unrelated border.
 The macOS bundle opts out of display safe-area compatibility mode after keeping
 toolbar controls away from the camera housing with safe-area insets. Since
 native macOS full screen reserves the camera/menu-bar strip, Revdown's View >

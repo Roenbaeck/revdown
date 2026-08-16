@@ -67,6 +67,36 @@ test("renders GFM, code, and math through the browser harness", async ({
   await expect(page.locator("#document-surface script")).toHaveCount(0);
 });
 
+test("soft-wraps long fenced-code lines without changing their text", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const longLine = `const reviewable = "${"long-source-token-".repeat(80)}";`;
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Open Markdown" }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: "long-code-line.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(`# Wrapped code\n\n\`\`\`ts\n${longLine}\n\`\`\`\n`),
+  });
+
+  const code = page.locator("pre code");
+  await expect(code).toHaveText(longLine);
+  await expect
+    .poll(() =>
+      code.evaluate((element) => {
+        const pre = element.closest("pre");
+        if (!pre) return null;
+        return {
+          whiteSpace: getComputedStyle(element).whiteSpace,
+          fits: pre.scrollWidth <= pre.clientWidth + 1,
+        };
+      }),
+    )
+    .toEqual({ whiteSpace: "pre-wrap", fits: true });
+});
+
 test("renders the Markdown conformance fixture with working footnotes", async ({
   page,
 }) => {
@@ -265,9 +295,24 @@ test("opens a generated novel without blocking the document surface", async ({
   const search = page.getByRole("search", { name: "Find in document" });
   await search
     .getByRole("searchbox", { name: "Search text" })
-    .fill("Chapter 200");
+    .fill("Chapter 100");
   await expect(search.locator(".documentSearchStatus")).toHaveText("1 / 44");
   await expect(page.locator(".rd-search-active").first()).toBeVisible();
+  const activeOutlineItem = outline.locator(".outlineItemActive");
+  await expect(activeOutlineItem).toHaveText("Chapter 100");
+  await expect
+    .poll(() =>
+      activeOutlineItem.evaluate((item) => {
+        const list = item.parentElement;
+        if (!list) return false;
+        const itemBounds = item.getBoundingClientRect();
+        const listBounds = list.getBoundingClientRect();
+        const itemCenter = itemBounds.top + itemBounds.height / 2;
+        const listCenter = listBounds.top + listBounds.height / 2;
+        return Math.abs(itemCenter - listCenter);
+      }),
+    )
+    .toBeLessThan(2);
   await search.getByRole("searchbox", { name: "Search text" }).press("Escape");
 
   await clickToolbarAction(page, "View and settings", "Hide outline");

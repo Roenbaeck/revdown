@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { MarkdownDocumentModel } from "../lib/markdown/model";
 
 type DocumentOutlineProps = {
   model: MarkdownDocumentModel;
   scrollContainerRef: RefObject<HTMLElement>;
+  targetSourceOffset?: number | null;
   onClose: () => void;
 };
 
 export function DocumentOutline(props: DocumentOutlineProps) {
+  const outlineListRef = useRef<HTMLElement>(null);
   const headings = useMemo(
     () =>
       [...props.model.blocks.values()]
@@ -16,6 +18,26 @@ export function DocumentOutline(props: DocumentOutlineProps) {
     [props.model],
   );
   const [activeId, setActiveId] = useState(headings[0]?.id ?? null);
+  const targetHeadingId = useMemo(() => {
+    if (
+      props.targetSourceOffset === null ||
+      props.targetSourceOffset === undefined
+    )
+      return null;
+    let low = 0;
+    let high = headings.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (
+        (headings[middle]?.start ?? Number.POSITIVE_INFINITY) <=
+        props.targetSourceOffset
+      )
+        low = middle + 1;
+      else high = middle;
+    }
+    return headings[Math.max(0, low - 1)]?.id ?? null;
+  }, [headings, props.targetSourceOffset]);
+  const displayedActiveId = targetHeadingId ?? activeId;
 
   useEffect(() => {
     const container = props.scrollContainerRef.current;
@@ -77,6 +99,33 @@ export function DocumentOutline(props: DocumentOutlineProps) {
     };
   }, [headings, props.scrollContainerRef]);
 
+  useEffect(() => {
+    if (!displayedActiveId) return;
+    const list = outlineListRef.current;
+    const active = list?.querySelector<HTMLElement>(
+      `[data-outline-id="${CSS.escape(displayedActiveId)}"]`,
+    );
+    if (!list || !active) return;
+    const listBounds = list.getBoundingClientRect();
+    const activeBounds = active.getBoundingClientRect();
+    if (targetHeadingId) {
+      const activeCenter = activeBounds.top + activeBounds.height / 2;
+      const listCenter = listBounds.top + listBounds.height / 2;
+      const maximum = Math.max(list.scrollHeight - list.clientHeight, 0);
+      list.scrollTop = Math.max(
+        0,
+        Math.min(list.scrollTop + activeCenter - listCenter, maximum),
+      );
+      return;
+    }
+    const inset = 6;
+    if (activeBounds.top < listBounds.top + inset) {
+      list.scrollTop += activeBounds.top - listBounds.top - inset;
+    } else if (activeBounds.bottom > listBounds.bottom - inset) {
+      list.scrollTop += activeBounds.bottom - listBounds.bottom + inset;
+    }
+  }, [displayedActiveId, targetHeadingId]);
+
   const navigate = (id: string) => {
     const target = props.scrollContainerRef.current?.querySelector<HTMLElement>(
       `[data-rd-block-id="${CSS.escape(id)}"]`,
@@ -103,13 +152,22 @@ export function DocumentOutline(props: DocumentOutlineProps) {
       {headings.length === 0 ? (
         <p className="navigationEmpty">This document has no headings.</p>
       ) : (
-        <nav className="outlineList" aria-label="Markdown headings">
+        <nav
+          ref={outlineListRef}
+          className="outlineList"
+          aria-label="Markdown headings"
+        >
           {headings.map((heading) => (
             <button
               type="button"
               key={heading.id}
-              className={heading.id === activeId ? "outlineItemActive" : ""}
-              aria-current={heading.id === activeId ? "location" : undefined}
+              data-outline-id={heading.id}
+              className={
+                heading.id === displayedActiveId ? "outlineItemActive" : ""
+              }
+              aria-current={
+                heading.id === displayedActiveId ? "location" : undefined
+              }
               title={heading.renderedText}
               style={{
                 paddingInlineStart: `${0.65 + ((heading.headingLevel ?? 1) - 1) * 0.65}rem`,

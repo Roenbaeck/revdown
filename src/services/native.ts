@@ -10,6 +10,7 @@ export type SourceRevision = {
 
 export type OpenedDocument = {
   sessionId: string;
+  documentId: string;
   filename: string;
   content: string;
   revision: SourceRevision;
@@ -42,7 +43,9 @@ export type McpServerStatus = {
 export type NativeService = {
   openDocument(): Promise<OpenedDocument | null>;
   takePendingDocument(): Promise<OpenedDocument | null>;
+  restoreRecentDocument(): Promise<OpenedDocument | null>;
   observeOpenRequests(listener: () => void): Promise<() => void>;
+  observeOpenPickerRequests(listener: () => void): Promise<() => void>;
   loadSidecar(sessionId: string): Promise<LoadedSidecar>;
   saveSidecar(
     sessionId: string,

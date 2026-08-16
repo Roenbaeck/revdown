@@ -51,8 +51,16 @@ export class TauriNativeService implements NativeService {
     return command("take_pending_document");
   }
 
+  restoreRecentDocument(): Promise<OpenedDocument | null> {
+    return command("restore_recent_document");
+  }
+
   observeOpenRequests(listener: () => void): Promise<() => void> {
     return getCurrentWindow().listen("revdown-open-document", listener);
+  }
+
+  observeOpenPickerRequests(listener: () => void): Promise<() => void> {
+    return getCurrentWindow().listen("revdown-open-picker", listener);
   }
 
   loadSidecar(sessionId: string): Promise<LoadedSidecar> {

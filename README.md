@@ -43,6 +43,7 @@ the application database.
 - Fast in-document search with highlighted results and keyboard navigation
 - System-aware light, sepia, and dark themes with reading controls
 - Finder and Explorer “Open With” support for `.md` and `.markdown` files
+- Native File → Open… support and automatic reading-position restoration
 - Comments anchored to rendered selections
 - Portable reviewer attribution with author badges and filtering
 - Conservative re-anchoring after document drift

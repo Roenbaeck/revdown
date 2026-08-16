@@ -720,7 +720,7 @@ textarea {
 
 .markdownBody pre {
   margin: 1.5rem 0;
-  overflow: auto;
+  overflow-x: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 1rem 1.15rem;
@@ -731,6 +731,8 @@ textarea {
 
 .markdownBody pre code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .markdownBody img {

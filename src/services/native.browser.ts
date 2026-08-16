@@ -94,6 +94,7 @@ export class BrowserNativeService implements NativeService {
     const sessionId = crypto.randomUUID();
     const document: OpenedDocument = {
       sessionId,
+      documentId: await sha256Hex(encodeUtf8(`browser:${filename}`)),
       filename,
       content,
       revision,
@@ -109,7 +110,15 @@ export class BrowserNativeService implements NativeService {
     return Promise.resolve(null);
   }
 
+  restoreRecentDocument(): Promise<OpenedDocument | null> {
+    return Promise.resolve(null);
+  }
+
   observeOpenRequests(): Promise<() => void> {
+    return Promise.resolve(() => undefined);
+  }
+
+  observeOpenPickerRequests(): Promise<() => void> {
     return Promise.resolve(() => undefined);
   }
 

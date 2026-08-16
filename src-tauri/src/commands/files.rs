@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use notify::{event::ModifyKind, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -12,7 +12,7 @@ use std::{
     sync::Mutex,
     time::UNIX_EPOCH,
 };
-use tauri::{Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
 use uuid::Uuid;
 
@@ -30,6 +30,7 @@ pub struct AppState {
 
 const MAX_PENDING_DOCUMENTS: usize = 32;
 const SOURCE_CHANGED_EVENT: &str = "revdown-source-changed";
+const RECENT_DOCUMENT_FILENAME: &str = "recent-document.json";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,9 +70,16 @@ pub struct SourceRevision {
 #[serde(rename_all = "camelCase")]
 pub struct OpenedDocument {
     session_id: String,
+    document_id: String,
     filename: String,
     content: String,
     revision: SourceRevision,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecentDocument {
+    source_path: PathBuf,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,6 +178,56 @@ fn is_markdown_path(path: &Path) -> bool {
     )
 }
 
+fn document_id(source_path: &Path) -> String {
+    let canonical = source_path
+        .canonicalize()
+        .unwrap_or_else(|_| source_path.to_path_buf());
+    hash_bytes(canonical.to_string_lossy().as_bytes())
+}
+
+fn recent_document_state_path(app: &AppHandle) -> CommandResult<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join(RECENT_DOCUMENT_FILENAME))
+        .map_err(|_| {
+            CommandError::new(
+                "settings_error",
+                "Revdown could not locate its application settings directory.",
+            )
+        })
+}
+
+fn load_recent_document(path: &Path) -> Option<RecentDocument> {
+    let contents = fs::read(path).ok()?;
+    serde_json::from_slice(&contents).ok()
+}
+
+fn save_recent_document(path: &Path, source_path: &Path) -> CommandResult<()> {
+    let source_path = source_path.canonicalize().map_err(CommandError::io)?;
+    let recent = RecentDocument { source_path };
+    let mut contents = serde_json::to_vec_pretty(&recent).map_err(|_| {
+        CommandError::new(
+            "settings_error",
+            "Revdown could not serialize its recent document setting.",
+        )
+    })?;
+    contents.push(b'\n');
+    let directory = path.parent().ok_or_else(|| {
+        CommandError::new(
+            "settings_error",
+            "The recent document setting has no parent directory.",
+        )
+    })?;
+    fs::create_dir_all(directory).map_err(CommandError::io)?;
+    atomic_write(path, &contents)
+}
+
+fn remember_recent_document(app: &AppHandle, source_path: &Path) {
+    if let Ok(path) = recent_document_state_path(app) {
+        let _ = save_recent_document(&path, source_path);
+    }
+}
+
 fn open_source_path(state: &AppState, source_path: PathBuf) -> CommandResult<OpenedDocument> {
     if !is_markdown_path(&source_path) {
         return Err(CommandError::new(
@@ -180,6 +238,7 @@ fn open_source_path(state: &AppState, source_path: PathBuf) -> CommandResult<Ope
     let filename = source_filename(&source_path)?;
     let (content, revision) = read_source(&source_path)?;
     let session_id = Uuid::new_v4().to_string();
+    let document_id = document_id(&source_path);
     state
         .sessions
         .lock()
@@ -187,6 +246,7 @@ fn open_source_path(state: &AppState, source_path: PathBuf) -> CommandResult<Ope
         .insert(session_id.clone(), Session { source_path });
     Ok(OpenedDocument {
         session_id,
+        document_id,
         filename,
         content,
         revision,
@@ -525,19 +585,48 @@ fn validated_external_url(value: &str) -> CommandResult<Url> {
 }
 
 #[tauri::command]
-pub fn open_document(state: State<'_, AppState>) -> CommandResult<Option<OpenedDocument>> {
+pub fn open_document(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<OpenedDocument>> {
     let selected = rfd::FileDialog::new()
         .add_filter("Markdown", &["md", "markdown"])
         .pick_file();
     let Some(source_path) = selected else {
         return Ok(None);
     };
-    open_source_path(&state, source_path).map(Some)
+    let opened = open_source_path(&state, source_path.clone())?;
+    remember_recent_document(&app, &source_path);
+    Ok(Some(opened))
 }
 
 #[tauri::command]
-pub fn take_pending_document(state: State<'_, AppState>) -> CommandResult<Option<OpenedDocument>> {
-    take_pending_document_from_state(&state)
+pub fn take_pending_document(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<OpenedDocument>> {
+    let opened = take_pending_document_from_state(&state)?;
+    if let Some(document) = &opened {
+        if let Ok(session) = session_for(&state, &document.session_id) {
+            remember_recent_document(&app, &session.source_path);
+        }
+    }
+    Ok(opened)
+}
+
+#[tauri::command]
+pub fn restore_recent_document(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<OpenedDocument>> {
+    let path = recent_document_state_path(&app)?;
+    let Some(recent) = load_recent_document(&path) else {
+        return Ok(None);
+    };
+    if !is_markdown_path(&recent.source_path) || !recent.source_path.is_file() {
+        return Ok(None);
+    }
+    Ok(open_source_path(&state, recent.source_path).ok())
 }
 
 #[tauri::command]
@@ -696,6 +785,7 @@ pub fn reload_source(
     let (content, revision) = read_source(&session.source_path)?;
     Ok(OpenedDocument {
         session_id,
+        document_id: document_id(&session.source_path),
         filename,
         content,
         revision,
@@ -780,9 +870,33 @@ mod tests {
             .expect("queued document");
 
         assert_eq!(opened.filename, "Associated.MD");
+        assert_eq!(opened.document_id.len(), 64);
         assert_eq!(opened.content.as_bytes(), source);
         assert_eq!(fs::read(source_path).unwrap(), source);
         assert!(take_pending_document_from_state(&state).unwrap().is_none());
+    }
+
+    #[test]
+    fn recent_document_setting_round_trips_atomically() {
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("remember-me.md");
+        let setting_path = directory.path().join("settings/recent-document.json");
+        fs::write(&source_path, b"# Remember me\n").unwrap();
+
+        save_recent_document(&setting_path, &source_path).unwrap();
+        let recent = load_recent_document(&setting_path).expect("recent document");
+
+        assert_eq!(recent.source_path, source_path.canonicalize().unwrap());
+        assert!(fs::read(&setting_path).unwrap().ends_with(b"\n"));
+    }
+
+    #[test]
+    fn invalid_recent_document_setting_is_ignored() {
+        let directory = tempdir().unwrap();
+        let setting_path = directory.path().join("recent-document.json");
+        fs::write(&setting_path, b"not json").unwrap();
+
+        assert!(load_recent_document(&setting_path).is_none());
     }
 
     #[test]

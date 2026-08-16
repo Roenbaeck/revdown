@@ -3,6 +3,7 @@ import { appReducer, initialState, reviewMutationsAllowed } from "./state";
 
 const documentB = {
   sessionId: "B",
+  documentId: "document-B",
   filename: "b.md",
   content: "B",
   revision: {

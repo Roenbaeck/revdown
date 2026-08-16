@@ -4,8 +4,8 @@ mod mcp;
 
 use commands::{
     export_review, load_sidecar, open_document, open_external, queue_associated_document,
-    read_local_image, reload_source, save_sidecar, source_has_changed, take_pending_document,
-    unwatch_source, watch_source, AppState,
+    read_local_image, reload_source, restore_recent_document, save_sidecar, source_has_changed,
+    take_pending_document, unwatch_source, watch_source, AppState,
 };
 use fullscreen::{
     handle_window_event, set_window_fullscreen, window_fullscreen_state, FullscreenState,
@@ -14,9 +14,12 @@ use mcp::{
     get_mcp_server_status, publish_mcp_snapshot, start_mcp_server, stop_mcp_server, McpServerState,
 };
 use std::{path::PathBuf, sync::Arc};
+use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::{Emitter, Manager};
 
 const OPEN_DOCUMENT_EVENT: &str = "revdown-open-document";
+const OPEN_PICKER_EVENT: &str = "revdown-open-picker";
+const OPEN_MENU_ID: &str = "revdown-open";
 
 fn focus_and_notify(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -48,7 +51,30 @@ fn queue_startup_document(app: &tauri::App) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default()
+        .menu(|app| {
+            let menu = Menu::default(app)?;
+            let open = MenuItem::with_id(app, OPEN_MENU_ID, "Open…", true, Some("CmdOrCtrl+O"))?;
+            let separator = PredefinedMenuItem::separator(app)?;
+            for item in menu.items()? {
+                if let MenuItemKind::Submenu(submenu) = item {
+                    if submenu.text()? == "File" {
+                        submenu.prepend_items(&[&open, &separator])?;
+                        break;
+                    }
+                }
+            }
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == OPEN_MENU_ID {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.emit(OPEN_PICKER_EVENT, ());
+                }
+            }
+        });
 
     #[cfg(windows)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, cwd| {
@@ -86,6 +112,7 @@ pub fn run() {
             read_local_image,
             open_external,
             take_pending_document,
+            restore_recent_document,
             set_window_fullscreen,
             window_fullscreen_state,
             start_mcp_server,

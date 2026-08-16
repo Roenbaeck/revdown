@@ -65,6 +65,10 @@ import {
   type ReaderSettings,
 } from "../lib/settings/reader";
 import {
+  loadReadingPosition,
+  saveReadingPosition,
+} from "../lib/settings/readingPosition";
+import {
   createAnchor,
   mapDomSelection,
   type MappedSelection,
@@ -111,6 +115,7 @@ export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const mutationsAllowed = reviewMutationsAllowed(state);
   const activeSessionId = state.document?.sessionId;
+  const activeDocumentId = state.document?.documentId;
   const activeSourceSha256 = state.document?.revision.sha256;
   const [native, setNative] = useState<NativeService | null>(null);
   const documentLoadIdRef = useRef(0);
@@ -418,15 +423,25 @@ export function App() {
     let unsubscribe: (() => void) | undefined;
     let openQueue = Promise.resolve();
 
-    const consumeOpenRequest = () => {
+    const consumeOpenRequest = (restoreWhenEmpty = false) => {
       openQueue = openQueue
         .then(async () => {
+          let openedAny = false;
           while (!cancelled) {
             const opened = await native.takePendingDocument();
-            if (!opened || cancelled) return;
+            if (!opened || cancelled) break;
+            openedAny = true;
             dispatch({ type: "loading" });
             await loadOpenedDocument(opened);
             setPendingSelection(null);
+          }
+          if (restoreWhenEmpty && !openedAny && !cancelled) {
+            const restored = await native.restoreRecentDocument();
+            if (restored && !cancelled) {
+              dispatch({ type: "loading" });
+              await loadOpenedDocument(restored);
+              setPendingSelection(null);
+            }
           }
         })
         .catch((error: unknown) => {
@@ -437,7 +452,9 @@ export function App() {
 
     const start = async () => {
       try {
-        const stop = await native.observeOpenRequests(consumeOpenRequest);
+        const stop = await native.observeOpenRequests(() =>
+          consumeOpenRequest(false),
+        );
         if (cancelled) {
           stop();
           return;
@@ -446,7 +463,7 @@ export function App() {
       } catch {
         // The initial queued request can still be consumed without events.
       }
-      if (!cancelled) consumeOpenRequest();
+      if (!cancelled) consumeOpenRequest(true);
     };
     void start();
 
@@ -474,6 +491,76 @@ export function App() {
       dispatch({ type: "failed", message: describeError(error) });
     }
   }, [loadOpenedDocument, native, state.document]);
+
+  useEffect(() => {
+    if (!native) return;
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    void native
+      .observeOpenPickerRequests(() => {
+        if (!cancelled) void openDocument();
+      })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unsubscribe = stop;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [native, openDocument]);
+
+  useEffect(() => {
+    if (state.phase !== "ready" || !activeDocumentId) return;
+    const region = documentRegionRef.current;
+    if (!region) return;
+    let restored = false;
+    let saveTimer: number | undefined;
+    const frames = new Set<number>();
+    const scheduleFrame = (callback: () => void) => {
+      const frame = window.requestAnimationFrame(() => {
+        frames.delete(frame);
+        callback();
+      });
+      frames.add(frame);
+    };
+    const persist = () => {
+      if (!restored) return;
+      const maximum = Math.max(region.scrollHeight - region.clientHeight, 0);
+      const position = maximum > 0 ? region.scrollTop / maximum : 0;
+      saveReadingPosition(window.localStorage, activeDocumentId, position);
+    };
+    const scheduleSave = () => {
+      if (!restored) return;
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(persist, 180);
+    };
+    const persistWhenHidden = () => {
+      if (document.visibilityState === "hidden") persist();
+    };
+    region.addEventListener("scroll", scheduleSave, { passive: true });
+    window.addEventListener("beforeunload", persist);
+    document.addEventListener("visibilitychange", persistWhenHidden);
+    scheduleFrame(() => {
+      scheduleFrame(() => {
+        const maximum = Math.max(region.scrollHeight - region.clientHeight, 0);
+        region.scrollTop =
+          loadReadingPosition(window.localStorage, activeDocumentId) * maximum;
+        scheduleFrame(() => {
+          restored = true;
+        });
+      });
+    });
+    return () => {
+      window.clearTimeout(saveTimer);
+      for (const frame of frames) window.cancelAnimationFrame(frame);
+      persist();
+      region.removeEventListener("scroll", scheduleSave);
+      window.removeEventListener("beforeunload", persist);
+      document.removeEventListener("visibilitychange", persistWhenHidden);
+    };
+  }, [activeDocumentId, state.phase]);
 
   const persistSidecar = useCallback(
     (candidate: SidecarV1) => {
@@ -1063,6 +1150,11 @@ export function App() {
           <DocumentOutline
             model={state.model!}
             scrollContainerRef={documentRegionRef}
+            targetSourceOffset={
+              searchOpen && !searchPending
+                ? (activeSearchMatch?.sourceRange.start ?? null)
+                : null
+            }
             onClose={() => setOutlineOpen(false)}
           />
         )}
